@@ -1,5 +1,7 @@
 # DRIVE MUMBAI
 
+**▶ [Play online](https://a6nkay-source.github.io/Driving-SIm/)** — runs in any desktop or mobile browser with WebGL 2; nothing to install.
+
 An open-world driving game that runs in the browser. You drive the **Vayu GT-35** — an original twin-turbo AWD coupé inspired by the Nissan GT-R — through real streets of **South Mumbai** (Marine Drive, Nariman Point, Churchgate, Fort, Colaba, the Gateway of India) and **Bandra West**, rebuilt in 3D from **OpenStreetMap** data.
 
 ![Marine Drive at night — the Queen's Necklace](docs/screenshots/marine-drive-night.jpg)
@@ -37,6 +39,8 @@ npm run build
 ```bash
 npm run preview
 ```
+
+Every push to `main` runs `npm run check` and publishes `dist/` to GitHub Pages through [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml); pull requests run the same checks without deploying. A fork needs Pages turned on once: **Settings → Pages → Source: GitHub Actions**.
 
 ## Controls
 
