@@ -41,6 +41,16 @@ export class GameController {
     this.audio.applySettings(settingsStore.get());
     // Pause / back key handling outside of driving.
     this.engine.onFrame = () => this.handleGlobalKeys();
+    // Any key or click is a user gesture: use it to (re)start blocked audio.
+    const retryAudio = () => {
+      if (appStore.get().audioBlocked) this.unlockAudio();
+    };
+    window.addEventListener('keydown', retryAudio);
+    window.addEventListener('pointerdown', retryAudio);
+    this.unsub.push(() => {
+      window.removeEventListener('keydown', retryAudio);
+      window.removeEventListener('pointerdown', retryAudio);
+    });
     void loadMapIndex().then((districts) => appStore.set({ districts }));
   }
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { appStore } from '../../app/state';
 import { settingsStore } from '../../core/settings';
 import { useStore } from '../../core/store';
 import type { Telemetry } from '../../drive/DriveScene';
@@ -76,6 +77,7 @@ const TURN_GLYPH: Record<string, string> = { left: '↰', right: '↱', straight
 export function Hud() {
   const ctrl = useController();
   const settings = useStore(settingsStore, (s) => s);
+  const audioBlocked = useStore(appStore, (s) => s.audioBlocked);
   const [slow, setSlow] = useState<Telemetry | null>(null);
   const [preview, setPreview] = useState<MapPreview | null>(null);
   const kmhRef = useRef<HTMLDivElement>(null);
@@ -203,10 +205,14 @@ export function Hud() {
   const virt = ctrl.input.virtual;
   const hold = (key: 'throttle' | 'brake' | 'handbrake' | 'left' | 'right') => ({
     onPointerDown: (e: React.PointerEvent) => {
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
       if (key === 'left') virt.steer = 1;
       else if (key === 'right') virt.steer = -1;
       else virt[key] = 1;
+      try {
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {
+        /* capture is best-effort (e.g. synthetic or already-released pointers) */
+      }
     },
     onPointerUp: () => {
       if (key === 'left' || key === 'right') virt.steer = 0;
@@ -232,6 +238,11 @@ export function Hud() {
           {(t?.camera ?? settings.camera).toUpperCase()}
         </div>
         {settings.muted && <div className="hud-panel ic on">MUTED</div>}
+        {audioBlocked && !settings.muted && (
+          <button className="hud-panel hud-pause pointer" onClick={() => ctrl.unlockAudio()} title="Your browser blocked audio until you interact with the page">
+            🔇 CLICK FOR SOUND
+          </button>
+        )}
         {settings.weather === 'monsoon' && <div className="hud-panel ic on">MONSOON</div>}
       </div>
 

@@ -459,6 +459,8 @@ export class MenuScene implements SceneController {
       // Menu panels sit on the left: nudge the framing so the car stays visible.
       if (this.mode === 'settings' || this.mode === 'about') desiredTarget.x -= 1.4;
     }
+    // Portrait screens: widen the vertical FOV so the car stays in frame.
+    if (this.camera.aspect < 1) fov = Math.min(80, fov / Math.pow(this.camera.aspect, 0.75));
     const k = 1 - Math.exp(-dt * (this.mode === 'garage' ? 6 : 1.6));
     this.camPos.lerp(desiredPos, k);
     this.camTarget.lerp(desiredTarget, k);

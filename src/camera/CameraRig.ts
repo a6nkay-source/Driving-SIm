@@ -116,6 +116,8 @@ export class CameraRig {
       this.pos.copy(cam.position);
       targetFov = (cockpit ? 70 : 66) + Math.min(10, speed * 0.12);
     }
+    // Portrait screens (phones): widen the vertical FOV to keep a usable view.
+    if (cam.aspect < 1) targetFov = Math.min(95, targetFov / Math.pow(cam.aspect, 0.6));
     if (this.shake > 0.001) {
       const s = this.shake * 0.25;
       cam.position.x += (Math.random() - 0.5) * s;

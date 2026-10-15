@@ -151,7 +151,11 @@ function MapCanvas({ preview, markers, route, onPick }: { preview: MapPreview; m
         onWheel={onWheel}
         onPointerDown={(e) => {
           drag.current = { x: e.clientX, y: e.clientY, moved: false };
-          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          try {
+            (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          } catch {
+            /* best-effort */
+          }
         }}
         onPointerMove={(e) => {
           const d = drag.current;

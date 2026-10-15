@@ -1239,21 +1239,20 @@ kbd {
   .touch-controls {
     display: block;
   }
-  .minimap {
-    width: 140px;
-    height: 140px;
-    top: 70px;
-    bottom: auto;
-  }
+  /* Keep the gauges clear of the on-screen pedals and steering. */
+  .minimap,
   .speedo {
-    width: 170px;
-    height: 170px;
-    bottom: auto;
-    top: 64px;
+    bottom: 200px;
+  }
+  .road-name {
+    bottom: 200px;
   }
 }
 
 @media (max-width: 760px) {
+  .car-tag {
+    display: none;
+  }
   .screen {
     flex-direction: column;
     overflow: auto;
@@ -1267,24 +1266,61 @@ kbd {
   .menu-footer .keys {
     display: none;
   }
-  .road-name {
-    max-width: calc(100vw - 32px);
-    bottom: auto;
-    top: 64px;
+  /* Phone HUD: navigation on top, gauges beneath it, road name above the pedals. */
+  .nav-card {
+    top: 8px;
+    min-width: 0;
+    width: calc(100vw - 16px);
+    padding: 8px 12px 8px 8px;
   }
-  .speedo {
-    width: 170px;
-    height: 170px;
+  .nav-card .turn {
+    width: 36px;
+    height: 36px;
+    font-size: 22px;
   }
-  .speedo .readout {
-    top: 56px;
-  }
-  .speedo .kmh {
-    font-size: 34px;
+  .nav-card .dist {
+    font-size: 17px;
   }
   .minimap {
-    width: 130px;
-    height: 130px;
+    width: 118px;
+    height: 118px;
+    top: 84px;
+    left: 10px;
+    bottom: auto;
+  }
+  .speedo {
+    width: 150px;
+    height: 150px;
+    top: 78px;
+    right: 6px;
+    bottom: auto;
+  }
+  .speedo .readout {
+    top: 50px;
+  }
+  .speedo .kmh {
+    font-size: 30px;
+  }
+  .speedo .gear {
+    width: 34px;
+    height: 34px;
+    font-size: 16px;
+    bottom: 18px;
+  }
+  .status-icons {
+    top: 212px;
+    left: 10px;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .checkpoint-hud {
+    top: 236px;
+  }
+  .road-name {
+    top: auto;
+    bottom: 200px;
+    min-width: 0;
+    max-width: calc(100vw - 24px);
   }
   .trip {
     display: none;
