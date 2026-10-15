@@ -1,0 +1,48 @@
+{
+  "name": "drive-mumbai",
+  "private": true,
+  "version": "1.0.0",
+  "description": "DRIVE MUMBAI — an open-world browser driving game set on real OpenStreetMap streets of Mumbai.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --pretty",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "map:fetch": "tsx scripts/map/fetch-osm.ts",
+    "map:build": "tsx scripts/map/build-map.ts",
+    "map:all": "tsx scripts/map/fetch-osm.ts south-mumbai && tsx scripts/map/build-map.ts south-mumbai"
+  },
+  "dependencies": {
+    "@fontsource/michroma": "5.3.0",
+    "@fontsource/rajdhani": "5.3.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/three": "0.186.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "eslint": "10.12.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.13.0",
+    "jsdom": "30.1.2",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.4"
+  }
+}

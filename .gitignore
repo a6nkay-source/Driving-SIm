@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+# Raw Overpass downloads (re-create with `npm run map:fetch`). Processed maps live in public/maps.
+data/osm/
+.vite/
+coverage/
+*.log
