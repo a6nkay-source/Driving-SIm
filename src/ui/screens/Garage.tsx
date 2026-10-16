@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { CALIPERS, carStore, PAINTS, paintById, RIMS, WINGS } from '../../core/carConfig';
 import { useStore } from '../../core/store';
+import { FLEET, FLEET_ORDER, isVehicleId } from '../../vehicle/fleet';
 import { useController } from '../context';
 import { BackButton } from '../components/BackButton';
 
@@ -8,6 +9,9 @@ export function Garage() {
   const ctrl = useController();
   const car = useStore(carStore, (s) => s);
   const paint = paintById(car.paint);
+  const vehicle = isVehicleId(car.vehicle) ? car.vehicle : 'gtr';
+  const spec = FLEET[vehicle];
+  const gt = vehicle === 'gtr';
   useEffect(() => ctrl.setMenuMode('garage'), [ctrl]);
   const set = (patch: Partial<typeof car>) => {
     ctrl.audio.ui('click');
@@ -21,55 +25,66 @@ export function Garage() {
           <BackButton to="menu" />
           <div>
             <div className="crumb">Garage</div>
-            <h2>Vayu GT-35</h2>
+            <h2>{gt ? 'Vayu GT-35' : spec.name}</h2>
+          </div>
+        </div>
+        <div className="section" style={{ marginTop: 0 }}>
+          <div className="section-title">Vehicle</div>
+          <div className="vehicle-picker" role="radiogroup" aria-label="Vehicle">
+            {FLEET_ORDER.map((id) => (
+              <button key={id} role="radio" aria-checked={vehicle === id} className={`vehicle-card ${vehicle === id ? 'on' : ''}`} onClick={() => set({ vehicle: id })}>
+                <span className="glyph" aria-hidden>
+                  {id === 'gtr' ? '🏎' : id === 'auto' ? '🛺' : id === 'taxi' ? '🚕' : '🚌'}
+                </span>
+                <span className="name">{FLEET[id].name}</span>
+                <span className="deva">{FLEET[id].nameHi}</span>
+              </button>
+            ))}
           </div>
         </div>
         <p className="prose" style={{ marginTop: 0 }}>
-          An original twin-turbo AWD coupé inspired by the Nissan GT-R. Every change previews live and is saved for your next drive.
+          {gt ? 'An original twin-turbo AWD coupé inspired by the Nissan GT-R. Every change previews live and is saved for your next drive.' : spec.blurb}
         </p>
         <div className="stat-grid">
           <div className="stat">
             <div className="k">Power</div>
-            <div className="v">
-              570<small>PS</small>
-            </div>
+            <div className="v">{spec.specs.power}</div>
           </div>
           <div className="stat">
             <div className="k">Torque</div>
-            <div className="v">
-              632<small>N·m</small>
-            </div>
-          </div>
-          <div className="stat">
-            <div className="k">0–100</div>
-            <div className="v">
-              ≈3.0<small>s</small>
-            </div>
+            <div className="v">{spec.specs.torque}</div>
           </div>
           <div className="stat">
             <div className="k">Top speed</div>
-            <div className="v">
-              315<small>km/h</small>
-            </div>
+            <div className="v">{spec.specs.top}</div>
           </div>
           <div className="stat">
-            <div className="k">Drive</div>
-            <div className="v">AWD</div>
-          </div>
-          <div className="stat">
-            <div className="k">Gearbox</div>
-            <div className="v">
-              6<small>DCT</small>
+            <div className="k">Layout</div>
+            <div className="v" style={{ fontSize: 16 }}>
+              {spec.specs.layout}
             </div>
           </div>
         </div>
         <p className="prose" style={{ marginTop: 16, fontSize: 14, color: 'var(--muted)' }}>
-          Drag the car to orbit · scroll to zoom. Figures describe the simulated car, not a real vehicle.
+          Drag to orbit · scroll to zoom. Figures describe the simulated vehicles, not real ones. In a drive, say or type “drive the bus” to switch on the fly.
         </p>
       </div>
 
       <div className="side-panel panel right">
-        <div className="section" style={{ marginTop: 0 }}>
+        {!gt && (
+          <div className="section" style={{ marginTop: 0 }}>
+            <div className="section-title">Livery</div>
+            <p className="prose" style={{ margin: 0, fontSize: 14, color: 'var(--muted)' }}>
+              {vehicle === 'auto'
+                ? 'Mumbai autos run in black and yellow on CNG, with a yellow commercial plate and a meter by the handlebar.'
+                : vehicle === 'taxi'
+                  ? 'The kaali-peeli: black body, yellow roof, chrome bumpers and a roof rack.'
+                  : 'BEST red with a cream waistband and an orange LED route board — route 138 to CSMT.'}{' '}
+              The paint options below apply to the GT.
+            </p>
+          </div>
+        )}
+        <div className="section" style={gt ? { marginTop: 0 } : { opacity: 0.45 }}>
           <div className="section-title">
             Paint <span className="value">{paint.name}</span>
           </div>

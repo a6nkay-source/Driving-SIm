@@ -1335,3 +1335,318 @@ kbd {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ------------------------------------------------------------------ commands, voice, captions */
+:root {
+  --font-deva: 'Rajdhani', 'Noto Sans Devanagari', 'Kohinoor Devanagari', 'Nirmala UI', 'Mangal', sans-serif;
+}
+.cmd-buttons {
+  position: absolute;
+  top: calc(clamp(12px, 3vh, 28px) + 40px);
+  left: clamp(12px, 3vw, 36px);
+  display: flex;
+  gap: 8px;
+}
+.cmd-btn {
+  pointer-events: auto !important;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--silver);
+  cursor: pointer;
+}
+.cmd-btn .k {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 4px;
+  margin-right: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.cmd-btn .mic {
+  color: var(--danger);
+}
+.cmd-btn.live {
+  color: var(--amber-hi);
+  border-color: rgba(255, 95, 82, 0.6);
+  animation: live-pulse 1s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  50% {
+    box-shadow: 0 0 0 4px rgba(255, 95, 82, 0.18);
+  }
+}
+
+.autopilot-pill {
+  position: absolute;
+  top: calc(clamp(12px, 3vh, 28px) + 78px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  font-size: 14px;
+  white-space: nowrap;
+  border-color: rgba(88, 211, 140, 0.45);
+}
+.autopilot-pill .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 8px var(--ok);
+  animation: live-pulse 1.2s ease-in-out infinite;
+}
+.autopilot-pill .k {
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--ok);
+}
+.autopilot-pill .v {
+  color: var(--silver-hi);
+  font-weight: 600;
+}
+.autopilot-pill .hint {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.cmd-reply {
+  position: absolute;
+  top: calc(clamp(12px, 3vh, 28px) + 122px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  max-width: min(640px, calc(100vw - 32px));
+  text-align: center;
+  color: var(--silver-hi);
+}
+.cmd-reply.ok {
+  border-color: rgba(88, 211, 140, 0.4);
+}
+.cmd-reply.warn,
+.cmd-reply.err {
+  border-color: rgba(255, 178, 63, 0.5);
+  color: var(--amber-hi);
+}
+.cmd-reply .heard {
+  color: var(--muted);
+  font-weight: 500;
+}
+.cmd-reply .pulse {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: live-pulse 0.9s ease-in-out infinite;
+}
+
+.cmd-bar {
+  pointer-events: auto !important;
+  position: absolute;
+  left: 50%;
+  bottom: clamp(150px, 26vh, 260px);
+  transform: translateX(-50%);
+  width: min(640px, calc(100vw - 32px));
+  padding: 12px;
+  background: var(--panel-solid);
+  border-color: var(--line-strong);
+}
+.cmd-bar form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cmd-bar .prompt {
+  color: var(--amber);
+  font-size: 22px;
+  font-weight: 700;
+}
+.cmd-bar input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--silver-hi);
+  font: 600 16px var(--font-ui), var(--font-deva);
+  outline: none;
+}
+.cmd-bar input:focus {
+  border-color: var(--amber);
+}
+.cmd-bar .mic-btn,
+.cmd-bar .go-btn {
+  height: 40px;
+  min-width: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--danger);
+  font-weight: 700;
+  cursor: pointer;
+}
+.cmd-bar .go-btn {
+  color: #05080f;
+  background: var(--amber);
+  border-color: var(--amber);
+  padding: 0 14px;
+  letter-spacing: 0.1em;
+}
+.cmd-bar .mic-btn.live {
+  background: rgba(255, 95, 82, 0.2);
+  animation: live-pulse 1s ease-in-out infinite;
+}
+.cmd-inline {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--ok);
+}
+.cmd-inline.warn {
+  color: var(--amber-hi);
+}
+.cmd-examples {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+.cmd-examples button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--silver-hi);
+  text-align: left;
+  cursor: pointer;
+}
+.cmd-examples button:hover {
+  border-color: var(--amber);
+}
+.cmd-examples .t {
+  font: 600 14px var(--font-ui), var(--font-deva);
+}
+.cmd-examples .h {
+  font-size: 12px;
+  color: var(--muted);
+}
+.cmd-foot {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--faint);
+  letter-spacing: 0.04em;
+}
+
+.captions {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(84px, 13vh, 120px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: min(720px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.caption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 5px 14px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.62);
+  animation: caption-in 0.25s var(--ease);
+}
+.caption .who {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+.caption .deva {
+  font: 600 19px var(--font-deva);
+  color: #fff;
+}
+.caption .tr {
+  font-size: 14px;
+  color: var(--silver);
+  font-style: italic;
+}
+@keyframes caption-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (max-width: 720px) {
+  .cmd-buttons {
+    top: calc(clamp(12px, 3vh, 28px) + 40px);
+  }
+  .autopilot-pill .hint {
+    display: none;
+  }
+  .cmd-bar {
+    bottom: auto;
+    top: 120px;
+  }
+  .cmd-examples {
+    grid-template-columns: 1fr;
+    max-height: 30vh;
+    overflow: auto;
+  }
+}
+
+.vehicle-picker {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.vehicle-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--silver-hi);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.vehicle-card:hover {
+  border-color: var(--line-strong);
+}
+.vehicle-card.on {
+  border-color: var(--amber);
+  background: rgba(255, 178, 63, 0.08);
+}
+.vehicle-card .glyph {
+  font-size: 22px;
+}
+.vehicle-card .name {
+  font-weight: 700;
+  font-size: 15px;
+}
+.vehicle-card .deva {
+  font: 500 13px var(--font-deva);
+  color: var(--muted);
+}

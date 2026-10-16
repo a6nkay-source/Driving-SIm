@@ -157,10 +157,10 @@ export class CollisionWorld {
     const fz = -Math.cos(s.heading);
     for (let iter = 0; iter < 3; iter++) {
       let any = false;
-      for (const off of CAR_CIRCLES) {
+      for (const off of p.circles ?? CAR_CIRCLES) {
         const cx = s.x + fx * off;
         const cz = s.z + fz * off;
-        const r = CAR_RADIUS;
+        const r = p.radius ?? CAR_RADIUS;
         let best: { nx: number; nz: number; pen: number; px: number; pz: number; kind: Contact['kind']; vehicle?: number; ovx?: number; ovz?: number } | null = null;
         const consider = (nx: number, nz: number, pen: number, px: number, pz: number, kind: Contact['kind'], vehicle?: number, ovx = 0, ovz = 0) => {
           if (pen > 0 && (!best || pen > best.pen)) best = { nx, nz, pen, px, pz, kind, vehicle, ovx, ovz };

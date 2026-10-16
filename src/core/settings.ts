@@ -4,6 +4,10 @@ export type Quality = 'low' | 'medium' | 'high' | 'ultra';
 export type CameraMode = 'chase' | 'far' | 'hood' | 'cockpit';
 export type TimeOfDay = 'day' | 'sunset' | 'night';
 export type Weather = 'clear' | 'monsoon';
+/** Which language street voices and guidance speak (captions are always available). */
+export type VoicePack = 'mix' | 'hi' | 'mr' | 'en' | 'off';
+/** Speech-recognition language for voice commands. */
+export type VoiceLang = 'en-IN' | 'hi-IN' | 'mr-IN';
 
 export interface Settings {
   quality: Quality;
@@ -11,7 +15,12 @@ export interface Settings {
   shadows: boolean;
   bloom: boolean;
   viewDistance: number;
+  /** 0 off … 4 Mumbai rush hour. */
   trafficDensity: number;
+  /** Pedestrians and crowds, 0 off … 4 festival crowds. */
+  crowdDensity: number;
+  /** Parked cars, hand-carts and street stalls. */
+  streetLife: boolean;
   masterVolume: number;
   engineVolume: number;
   effectsVolume: number;
@@ -24,6 +33,10 @@ export interface Settings {
   showFps: boolean;
   timeOfDay: TimeOfDay;
   weather: Weather;
+  voicePack: VoicePack;
+  voiceVolume: number;
+  captions: boolean;
+  voiceLang: VoiceLang;
 }
 
 export const QUALITY_PRESETS: Record<Quality, Pick<Settings, 'renderScale' | 'shadows' | 'bloom' | 'viewDistance'>> = {
@@ -36,7 +49,9 @@ export const QUALITY_PRESETS: Record<Quality, Pick<Settings, 'renderScale' | 'sh
 export const DEFAULT_SETTINGS: Settings = {
   quality: 'high',
   ...QUALITY_PRESETS.high,
-  trafficDensity: 2,
+  trafficDensity: 3,
+  crowdDensity: 3,
+  streetLife: true,
   masterVolume: 0.8,
   engineVolume: 0.9,
   effectsVolume: 0.8,
@@ -49,6 +64,10 @@ export const DEFAULT_SETTINGS: Settings = {
   showFps: false,
   timeOfDay: 'sunset',
   weather: 'clear',
+  voicePack: 'mix',
+  voiceVolume: 0.9,
+  captions: true,
+  voiceLang: 'en-IN',
 };
 
 const KEY = 'drive-mumbai:settings:v1';

@@ -12,6 +12,8 @@ import type { SceneController } from '../engine/Engine';
 import { hash01, rng } from '../map/geometry';
 import { BuildingStyle, type BuildingData } from '../map/types';
 import { CarModel } from '../vehicle/CarModel';
+import { isVehicleId, type PlayerVehicleId } from '../vehicle/fleet';
+import { createUtilityModel, type PlayerModel } from '../vehicle/MumbaiVehicles';
 import { buildBuildingGeometry } from '../world/BuildingBuilder';
 import { createBuildingMaterial, createWaterMaterial, worldUniforms } from '../world/materials';
 import { asphaltTexture, puddleTexture, radialTexture } from '../world/textures';
@@ -47,6 +49,8 @@ export class MenuScene implements SceneController {
   private powerOn = 0;
   private shots: Shot[];
   private hoverShot: number | null = null;
+  /** The rickshaw / taxi / bus when one is chosen in the garage. */
+  private alt: PlayerModel | null = null;
 
   constructor(private readonly renderer: THREE.WebGLRenderer) {
     RectAreaLightUniformsLib.init();
@@ -65,7 +69,12 @@ export class MenuScene implements SceneController {
     this.car.root.rotation.y = -0.35;
     this.turntable.add(this.car.root);
     s.add(this.turntable);
-    this.disposers.push(carStore.subscribe(() => this.car.applyConfig(carStore.get())));
+    this.disposers.push(
+      carStore.subscribe(() => {
+        this.car.applyConfig(carStore.get());
+        this.syncVehicle();
+      }),
+    );
     // Explicit env maps so per-material reflection strengths apply.
     for (const m of [this.car.mats.paint, this.car.mats.glass, this.car.mats.chrome, this.car.mats.headLens, this.car.mats.rim]) m.envMap = this.envTarget.texture;
 
@@ -143,7 +152,8 @@ export class MenuScene implements SceneController {
     const up = () => (this.orbit.dragging = false);
     const wheel = (e: WheelEvent) => {
       if (this.mode !== 'garage') return;
-      this.orbit.dist = Math.max(4.5, Math.min(13, this.orbit.dist + e.deltaY * 0.006));
+      const k = this.vehicleScale();
+      this.orbit.dist = Math.max(4.5 * k, Math.min(13 * k, this.orbit.dist + e.deltaY * 0.006 * k));
     };
     dom.addEventListener('pointerdown', down);
     window.addEventListener('pointermove', move);
@@ -164,8 +174,47 @@ export class MenuScene implements SceneController {
       this.orbit.auto = true;
       this.orbit.yaw = 0.9;
       this.orbit.pitch = 0.14;
-      this.orbit.dist = 9.2;
+      this.orbit.dist = 9.2 * this.vehicleScale();
     }
+    this.syncVehicle();
+  }
+
+  private selected(): PlayerVehicleId {
+    const v = carStore.get().vehicle;
+    return isVehicleId(v) ? v : 'gtr';
+  }
+
+  private vehicleScale(): number {
+    const v = this.selected();
+    return this.mode !== 'garage' ? 1 : v === 'bus' ? 2.1 : v === 'auto' ? 0.78 : v === 'taxi' ? 0.95 : 1;
+  }
+
+  /** The garage shows the chosen vehicle; the cinematic menu shots always feature the GT. */
+  private syncVehicle(): void {
+    const want = this.mode === 'garage' ? this.selected() : 'gtr';
+    if (want === 'gtr') {
+      this.car.root.visible = true;
+      if (this.alt) {
+        this.turntable.remove(this.alt.root);
+        this.alt.dispose();
+        this.alt = null;
+      }
+      return;
+    }
+    if (this.alt?.id === want) return;
+    if (this.alt) {
+      this.turntable.remove(this.alt.root);
+      this.alt.dispose();
+    }
+    const m = createUtilityModel(want);
+    m.root.rotation.y = -0.35;
+    for (const mat of m.reflective) mat.envMap = this.envTarget.texture;
+    m.setHeadlights(true);
+    m.setBeamStrength(0.8);
+    this.turntable.add(m.root);
+    this.alt = m;
+    this.car.root.visible = false;
+    if (this.mode === 'garage') this.orbit.dist = 9.2 * this.vehicleScale();
   }
 
   /** Previews a specific shot while a menu button is hovered (null resumes the cycle). */
@@ -438,7 +487,7 @@ export class MenuScene implements SceneController {
       if (this.orbit.auto) this.orbit.yaw += dt * 0.12;
       const o = this.orbit;
       desiredPos = V(Math.sin(o.yaw) * Math.cos(o.pitch) * o.dist, 0.5 + Math.sin(o.pitch) * o.dist, Math.cos(o.yaw) * Math.cos(o.pitch) * o.dist);
-      desiredTarget = V(0, 0.55, 0);
+      desiredTarget = V(0, 0.55 * (this.alt?.id === 'bus' ? 2.6 : 1), 0);
       fov = 34;
     } else if (this.mode === 'map' || this.mode === 'loading') {
       const a = this.time * 0.03;
@@ -477,6 +526,7 @@ export class MenuScene implements SceneController {
   dispose(): void {
     this.disposers.forEach((d) => d());
     this.car.dispose();
+    this.alt?.dispose();
     this.envTarget.dispose();
     this.reflector.getRenderTarget().dispose();
     this.scene.traverse((o) => {

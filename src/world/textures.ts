@@ -289,12 +289,13 @@ export function honeycombTexture(): THREE.Texture {
 }
 
 /** Indian high-security registration plate: white, black text, blue "IND" strip. */
-export function numberPlateTexture(text: string): THREE.Texture {
-  return memo(`plate:${text}`, () => {
+export function numberPlateTexture(text: string, commercial = false): THREE.Texture {
+  return memo(`plate:${text}:${commercial}`, () => {
     const W = 512;
     const H = 112;
     const [c, ctx] = canvas(W, H);
-    ctx.fillStyle = '#f4f4f0';
+    // Commercial (taxi, auto, bus) plates are yellow with black text.
+    ctx.fillStyle = commercial ? '#f2c418' : '#f4f4f0';
     ctx.fillRect(0, 0, W, H);
     ctx.strokeStyle = '#111';
     ctx.lineWidth = 6;

@@ -13,7 +13,8 @@ import { Kind } from '../map/types';
 import type { DynamicCircle } from '../physics/CollisionWorld';
 import { createTrafficMaterial } from '../world/materials';
 import { AMBER, RED, type SignalSystem } from './Signals';
-import { CAR_COLORS, SPECS, vehicleGeometries, type VehicleKind } from './vehicleModels';
+import type { TrafficMix } from '../map/types';
+import { CAR_COLORS, SHIRT_COLORS, SPECS, TRUCK_COLORS, vehicleGeometries, type VehicleKind } from './vehicleModels';
 
 interface Vehicle {
   active: boolean;
@@ -42,6 +43,13 @@ interface Vehicle {
   braking: boolean;
   stuck: number;
   color: THREE.Color;
+  /** Visual length/width scale (hatchbacks vs SUVs). */
+  scale: number;
+  /** Lateral wander within the lane (bikes filter between cars). */
+  jitter: number;
+  /** Seconds this vehicle has been held up behind the player. */
+  blocked: number;
+  nextHonk: number;
 }
 
 const KIND_SPEED: Record<number, number> = {
@@ -56,7 +64,10 @@ const KIND_SPEED: Record<number, number> = {
   [Kind.Link]: 10,
 };
 
-const KINDS: VehicleKind[] = ['car', 'taxi', 'bus', 'auto'];
+const KINDS: VehicleKind[] = ['car', 'taxi', 'bus', 'bus1', 'auto', 'bike', 'truck'];
+const CAPACITY_SHARE: Record<VehicleKind, number> = { car: 0.8, taxi: 0.55, bus: 0.14, bus1: 0.14, auto: 0.4, bike: 0.5, truck: 0.16 };
+/** Traffic density presets: off, light, normal, heavy, Mumbai rush hour. */
+export const DENSITY_LEVELS = [0, 40, 90, 160, 240];
 
 export interface PlayerInfo {
   x: number;
@@ -78,22 +89,24 @@ export class TrafficSystem {
   private target = 0;
   private spawnTimer = 0;
   private tmp = { x: 0, z: 0, tx: 0, tz: 0, h: 0 };
-  private mix: { car: number; taxi: number; bus: number; auto: number };
+  private mix: TrafficMix;
   readonly radius = 420;
+  /** Fired when a vehicle honks (blocked by the player, bumped, impatient at a jam). */
+  onHonk: ((x: number, z: number, kind: VehicleKind) => void) | null = null;
 
   constructor(
     private readonly graph: RoadGraph,
     private readonly signals: SignalSystem,
     private readonly nodeRadius: Float32Array,
-    mix: { car: number; taxi: number; bus: number; auto: number },
-    private readonly capacity = 140,
+    mix: TrafficMix,
+    private readonly capacity = 260,
   ) {
     this.group.name = 'traffic';
     this.mix = mix;
     const geos = vehicleGeometries();
     const mat = createTrafficMaterial();
     for (const k of KINDS) {
-      const cap = k === 'bus' ? Math.ceil(capacity * 0.2) : k === 'auto' ? Math.ceil(capacity * 0.4) : capacity;
+      const cap = Math.ceil(capacity * CAPACITY_SHARE[k]);
       const geo = geos[k].clone();
       const st = new THREE.InstancedBufferAttribute(new Float32Array(cap * 2), 2);
       st.setUsage(THREE.DynamicDrawUsage);
@@ -117,7 +130,7 @@ export class TrafficSystem {
   }
 
   setDensity(level: number): void {
-    this.target = [0, 28, 60, 110][Math.max(0, Math.min(3, level))];
+    this.target = DENSITY_LEVELS[Math.max(0, Math.min(DENSITY_LEVELS.length - 1, level))];
     this.target = Math.min(this.target, this.capacity);
   }
 
@@ -127,17 +140,25 @@ export class TrafficSystem {
     return n;
   }
 
-  private pickKind(): VehicleKind {
-    const r = Math.random();
+  /** Random vehicle type for a spawn at local z (auto-rickshaws only in the suburbs). */
+  private pickKind(z: number): VehicleKind {
     const m = this.mix;
-    const total = m.car + m.taxi + m.bus + m.auto;
-    let acc = m.car / total;
-    if (r < acc) return 'car';
-    acc += m.taxi / total;
-    if (r < acc) return 'taxi';
-    acc += m.bus / total;
-    if (r < acc) return 'bus';
-    return m.auto > 0 ? 'auto' : 'car';
+    const autos = m.autoNorthOfZ === undefined || z < m.autoNorthOfZ ? m.auto : 0;
+    const table: [VehicleKind, number][] = [
+      ['car', m.car],
+      ['taxi', m.taxi],
+      ['bus', m.bus],
+      ['auto', autos],
+      ['bike', m.bike],
+      ['truck', m.truck],
+    ];
+    const total = table.reduce((a, [, w]) => a + w, 0);
+    let r = Math.random() * total;
+    for (const [k, w] of table) {
+      r -= w;
+      if (r <= 0) return k === 'bus' && Math.random() < 0.5 ? 'bus1' : k;
+    }
+    return 'car';
   }
 
   private laneCount(edge: number, towardsB: boolean): number {
@@ -215,30 +236,34 @@ export class TrafficSystem {
 
   private posTmp = { x: 0, z: 0, dx: 0, dz: 0, h: 0 };
 
-  private spawn(player: PlayerInfo, minD: number, maxD: number): boolean {
+  private spawn(player: PlayerInfo, minD: number, maxD: number, forced?: VehicleKind, aheadOnly = false): boolean {
     if (!this.spawnable.length) return false;
-    for (let attempt = 0; attempt < 12; attempt++) {
-      // Weighted random edge near the player: sample a nearby point and snap.
-      const ang = Math.random() * Math.PI * 2;
+    const fx = -Math.sin(player.heading);
+    const fz = -Math.cos(player.heading);
+    for (let attempt = 0; attempt < 14; attempt++) {
+      // Random point near the player, snapped to a road.
+      let ang = Math.random() * Math.PI * 2;
+      if (aheadOnly) ang = Math.atan2(fz, fx) + (Math.random() - 0.5) * 1.6;
       const dist = minD + Math.random() * (maxD - minD);
       const px = player.x + Math.cos(ang) * dist;
       const pz = player.z + Math.sin(ang) * dist;
-      const near = this.graph.nearest(px, pz, 60, (e, ei) => !!this.graph.main[ei] && e.k <= Kind.Residential && this.graph.lengths[ei] > 25);
+      const near = this.graph.nearest(px, pz, 60, (e, ei) => !!this.graph.main[ei] && e.k <= Kind.Residential && !e.h && this.graph.lengths[ei] > 25);
       if (!near) continue;
       const e = this.graph.edges[near.edge];
       const towardsB = e.o ? true : Math.random() < 0.5;
       const len = this.graph.lengths[near.edge];
       const s = towardsB ? near.s : len - near.s;
       if (s < 6 || s > len - 10) continue;
-      const kind = this.pickKind();
+      const kind = forced ?? this.pickKind(near.z);
       const lanes = this.laneCount(near.edge, towardsB);
-      const lane = kind === 'bus' || kind === 'auto' ? 0 : Math.floor(Math.random() * lanes);
+      const lane = kind === 'bus' || kind === 'bus1' || kind === 'auto' || kind === 'truck' || kind === 'bike' ? 0 : Math.floor(Math.random() * lanes);
       this.position(near.edge, towardsB, s, lane, this.posTmp);
-      if (Math.hypot(this.posTmp.x - player.x, this.posTmp.z - player.z) < minD * 0.8) continue;
+      if (Math.hypot(this.posTmp.x - player.x, this.posTmp.z - player.z) < Math.max(8, minD * 0.8)) continue;
       // Don't spawn on top of another vehicle.
+      const clearance = kind === 'bike' ? 5 : 11;
       let clash = false;
       for (const o of this.vehicles) {
-        if (o.active && Math.hypot(o.x - this.posTmp.x, o.z - this.posTmp.z) < 14) {
+        if (o.active && Math.hypot(o.x - this.posTmp.x, o.z - this.posTmp.z) < clearance) {
           clash = true;
           break;
         }
@@ -273,6 +298,10 @@ export class TrafficSystem {
           braking: false,
           stuck: 0,
           color: new THREE.Color(),
+          scale: 1,
+          jitter: 0,
+          blocked: 0,
+          nextHonk: 0,
         };
         this.vehicles.push(v);
       }
@@ -288,19 +317,32 @@ export class TrafficSystem {
         curve: -1,
         hazard: 0,
         stuck: 0,
+        blocked: 0,
+        nextHonk: 0,
         braking: false,
         x: this.posTmp.x,
         z: this.posTmp.z,
         y: this.posTmp.h,
         heading: Math.atan2(-this.posTmp.dx, -this.posTmp.dz),
       });
-      v.v0 = (KIND_SPEED[e.k] ?? 9) * (0.85 + seed * 0.3) * (kind === 'bus' ? 0.8 : kind === 'auto' ? 0.75 : kind === 'taxi' ? 1.05 : 1);
+      const kindFactor: Record<VehicleKind, number> = { car: 1, taxi: 1.05, bus: 0.8, bus1: 0.82, auto: 0.72, bike: 1.12, truck: 0.82 };
+      v.v0 = (KIND_SPEED[e.k] ?? 9) * (0.85 + seed * 0.3) * kindFactor[kind];
       v.speed = v.v0 * 0.7;
-      v.color.set(kind === 'car' ? CAR_COLORS[Math.floor(hash01(seed * 1e6) * CAR_COLORS.length)] : '#ffffff');
+      v.scale = kind === 'car' ? 0.9 + hash01(seed * 7e5) * 0.24 : 1;
+      v.jitter = kind === 'bike' ? (hash01(seed * 3e5) - 0.5) * 1.6 : kind === 'auto' ? (hash01(seed * 3e5) - 0.5) * 0.6 : 0;
+      const palette = kind === 'car' ? CAR_COLORS : kind === 'bike' ? SHIRT_COLORS : kind === 'truck' ? TRUCK_COLORS : null;
+      v.color.set(palette ? palette[Math.floor(hash01(seed * 1e6) * palette.length)] : '#ffffff');
       this.chooseNext(v);
       return true;
     }
     return false;
+  }
+
+  /** Spawns vehicles of a given kind close to the player (used by commands). */
+  spawnNear(kind: VehicleKind, count: number, player: PlayerInfo): number {
+    let n = 0;
+    for (let i = 0; i < count; i++) if (this.spawn(player, 20, 90, kind, i % 2 === 0)) n++;
+    return n;
   }
 
   private despawn(v: Vehicle): void {
@@ -315,8 +357,15 @@ export class TrafficSystem {
   bump(id: number): void {
     const v = this.vehicles[id];
     if (!v?.active) return;
+    if (v.hazard <= 0) this.onHonk?.(v.x, v.z, v.kind);
     v.speed = 0;
     v.hazard = 5;
+  }
+
+  /** Kind of an active vehicle (for audio). */
+  kindOf(id: number): VehicleKind | null {
+    const v = this.vehicles[id];
+    return v?.active ? v.kind : null;
   }
 
   /** Collision circles for vehicles near a point. */
@@ -355,7 +404,7 @@ export class TrafficSystem {
     }
     this.spawnTimer -= dt;
     if (active < this.target && this.spawnTimer <= 0) {
-      const burst = Math.min(6, this.target - active);
+      const burst = Math.min(10, this.target - active);
       const initial = active < this.target * 0.3;
       for (let i = 0; i < burst; i++) this.spawn(player, initial ? 35 : 170, this.radius - 20);
       this.spawnTimer = 0.25;
@@ -384,17 +433,21 @@ export class TrafficSystem {
       // ---- Gap to the vehicle ahead (other traffic or the player).
       let gap = 80;
       let leadSpeed = v.v0;
-      const consider = (ox: number, oz: number, oLen: number, oSpeed: number) => {
+      let leadIsPlayer = false;
+      // Bikes squeeze through gaps, so they only react to what is directly ahead.
+      const laneHalf = v.kind === 'bike' ? 1.1 : 2.3;
+      const consider = (ox: number, oz: number, oLen: number, oSpeed: number, isPlayer = false) => {
         const rx = ox - v.x;
         const rz = oz - v.z;
         const along = rx * fx + rz * fz;
         if (along <= 0 || along > 45) return;
         const lat = Math.abs(rx * lx + rz * lz);
-        if (lat > 2.3) return;
+        if (lat > laneHalf) return;
         const g = along - (spec.length + oLen) / 2;
         if (g < gap) {
           gap = g;
           leadSpeed = oSpeed;
+          leadIsPlayer = isPlayer;
         }
       };
       const cx = Math.floor(v.x / 24);
@@ -407,11 +460,18 @@ export class TrafficSystem {
             if (o === v) continue;
             const ofx = -Math.sin(o.heading);
             const ofz = -Math.cos(o.heading);
-            consider(o.x, o.z, SPECS[o.kind].length, o.speed * (ofx * fx + ofz * fz));
+            const dot = ofx * fx + ofz * fz;
+            if (dot < 0.5) {
+              // Crossing or oncoming: only yield to a vehicle that is moving through
+              // right in front of us. Two vehicles waiting on each other at a
+              // junction would otherwise gridlock forever.
+              if (o.speed < 0.6 || (o.x - v.x) * fx + (o.z - v.z) * fz > 7) continue;
+            }
+            consider(o.x, o.z, SPECS[o.kind].length, o.speed * dot);
           }
         }
       }
-      consider(player.x, player.z, 4.7, playerSpeed * (pfx * fx + pfz * fz));
+      consider(player.x, player.z, 4.7, playerSpeed * (pfx * fx + pfz * fz), true);
 
       // ---- Signals.
       let atRed = false;
@@ -463,10 +523,23 @@ export class TrafficSystem {
       if (gap < 0.4) v.speed = 0;
       v.braking = acc < -1.2 || (v.speed < 0.5 && (atRed || gap < 6));
 
+      // Mumbai manners: lean on the horn when the player blocks the way, and
+      // the occasional impatient honk while waiting at a red light.
+      if (leadIsPlayer && gap < 12 && Math.abs(playerSpeed) < 1.2) v.blocked += dt;
+      else v.blocked = Math.max(0, v.blocked - dt * 2);
+      if (time > v.nextHonk) {
+        const impatient = v.blocked > 1.2 || (atRed && v.speed < 0.3 && Math.random() < dt * 0.06);
+        if (impatient) {
+          this.onHonk?.(v.x, v.z, v.kind);
+          v.nextHonk = time + 2.5 + Math.random() * 4;
+        }
+      }
+
       // Gridlock breaker.
       if (v.speed < 0.3 && !atRed && v.hazard <= 0) {
         v.stuck += dt;
-        if (v.stuck > 14 && Math.hypot(v.x - player.x, v.z - player.z) > 60) {
+        const far = Math.hypot(v.x - player.x, v.z - player.z);
+        if ((v.stuck > 14 && far > 60) || (v.stuck > 30 && far > 18 && !leadIsPlayer)) {
           this.despawn(v);
           continue;
         }
@@ -531,8 +604,8 @@ export class TrafficSystem {
         h = v.y;
       } else {
         this.position(v.edge, v.towardsB, v.s, v.lane, this.posTmp);
-        x = this.posTmp.x;
-        z = this.posTmp.z;
+        x = this.posTmp.x + this.posTmp.dz * v.jitter;
+        z = this.posTmp.z - this.posTmp.dx * v.jitter;
         h = this.posTmp.h;
         dx = this.posTmp.dx;
         dz = this.posTmp.dz;
@@ -552,14 +625,16 @@ export class TrafficSystem {
     // ---- Upload instance data.
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
-    const one = new THREE.Vector3(1, 1, 1);
+    const scale = new THREE.Vector3(1, 1, 1);
     const up = new THREE.Vector3(0, 1, 0);
     const counts = new Map<VehicleKind, number>();
     for (const v of this.vehicles) {
       if (!v.active) continue;
       const mesh = this.meshes.get(v.kind)!;
       q.setFromAxisAngle(up, v.heading);
-      m.compose(new THREE.Vector3(v.x, v.y + 0.02, v.z), q, one);
+      // Hatchbacks to SUVs: vary length, width and height a little.
+      scale.set(0.94 + (v.scale - 0.9) * 0.4, 0.95 + (v.scale - 0.9) * 0.6, v.scale);
+      m.compose(new THREE.Vector3(v.x, v.y + 0.02, v.z), q, scale);
       mesh.setMatrixAt(v.slot, m);
       mesh.setColorAt(v.slot, v.color);
       const st = this.stateAttr.get(v.kind)!;
@@ -572,7 +647,6 @@ export class TrafficSystem {
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       this.stateAttr.get(k)!.needsUpdate = true;
     }
-    void time;
   }
 
   private junctionR(v: Vehicle, atStart: boolean): number {

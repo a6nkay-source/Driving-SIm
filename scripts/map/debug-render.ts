@@ -2,7 +2,7 @@
  * Renders a processed district to a PNG overview (water, parks, sand, roads,
  * flyovers, buildings, shoreline) for checking pipeline output by eye.
  *
- *   npx tsx scripts/map/debug-render.ts south-mumbai out.png [scale]
+ *   npx tsx scripts/map/debug-render.ts mumbai out.png [scale]
  */
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
@@ -34,7 +34,7 @@ function decodeRgbPng(buf: Buffer): { w: number; h: number; px: Uint8Array } {
 }
 
 async function main() {
-  const id = process.argv[2] ?? 'south-mumbai';
+  const id = process.argv[2] ?? 'mumbai';
   const out = process.argv[3] ?? 'map-debug.png';
   const scale = Number(process.argv[4] ?? 3);
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');

@@ -19,7 +19,7 @@
     "check": "npm run typecheck && npm run lint && npm run test && npm run build",
     "map:fetch": "tsx scripts/map/fetch-osm.ts",
     "map:build": "tsx scripts/map/build-map.ts",
-    "map:all": "tsx scripts/map/fetch-osm.ts south-mumbai && tsx scripts/map/build-map.ts south-mumbai"
+    "map:all": "tsx scripts/map/fetch-osm.ts mumbai && tsx scripts/map/build-map.ts mumbai"
   },
   "dependencies": {
     "@fontsource/michroma": "5.3.0",

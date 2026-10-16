@@ -24,34 +24,61 @@ float bHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453)
  * become shops with signboards. aWall = (metres along wall, metres above base),
  * aWin = (style + 1 or 0 for roofs, frontage flag, seed, floor height).
  */
-export function createBuildingMaterial(): THREE.MeshStandardMaterial {
+export interface FarLayerOptions {
+  /** Per-chunk "detailed tile loaded" flags (R channel), cols × rows. */
+  loaded: THREE.Texture;
+  grid: THREE.Vector2;
+}
+
+export function createBuildingMaterial(far?: FarLayerOptions): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0.02, envMapIntensity: 0.7 });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNight = worldUniforms.uNight;
     shader.uniforms.uWet = worldUniforms.uWet;
+    shader.uniforms.uTime = worldUniforms.uTime;
+    if (far) {
+      shader.uniforms.uLoaded = { value: far.loaded };
+      shader.uniforms.uGrid = { value: far.grid };
+    }
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
         `#include <common>
         attribute vec2 aWall;
         attribute vec4 aWin;
+        attribute float aTop;
         varying vec2 vWall;
-        varying vec4 vWin;`,
+        varying vec4 vWin;
+        varying float vTop;
+        ${far ? 'attribute vec2 aChunk;\nuniform sampler2D uLoaded;\nuniform vec2 uGrid;' : ''}`,
       )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
         vWall = aWall;
-        vWin = aWin;`,
+        vWin = aWin;
+        vTop = aTop;`,
       );
+    if (far) {
+      // Far layer: hide buildings whose detailed tile is currently streamed in.
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+        if (aChunk.x >= 0.0 && aChunk.y >= 0.0 && aChunk.x < uGrid.x && aChunk.y < uGrid.y) {
+          if (texture2D(uLoaded, (aChunk + 0.5) / uGrid).r > 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        }`,
+      );
+    }
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
         `#include <common>
         uniform float uNight;
         uniform float uWet;
+        uniform float uTime;
         varying vec2 vWall;
         varying vec4 vWin;
+        varying float vTop;
         ${HASH}
         vec3 signPalette(float r) {
           if (r < 0.14) return vec3(0.75, 0.13, 0.1);
@@ -122,6 +149,13 @@ export function createBuildingMaterial(): THREE.MeshStandardMaterial {
             }
             diffuseColor.rgb = mix(diffuseColor.rgb, glassCol, wmix);
             bGlass = wmix * (style > 2.5 && style < 3.5 ? 1.0 : 0.75);
+            // Skyscraper crowns are lit with LED bands at night.
+            if (vTop > 55.0 && v > vTop - 3.2) {
+              float hue = bHash(vec2(seed * 41.0, 3.0));
+              vec3 led = hue < 0.4 ? vec3(0.75, 0.88, 1.0) : hue < 0.65 ? vec3(0.35, 0.55, 1.0) : hue < 0.85 ? vec3(0.75, 0.4, 1.0) : vec3(1.0, 0.7, 0.3);
+              float band = smoothstep(vTop - 3.2, vTop - 2.6, v) * (1.0 - smoothstep(vTop - 0.6, vTop, v));
+              bEmit += led * band * uNight * 2.2;
+            }
             float rnd = bHash(id + seed * 91.7);
             float lit = step(0.56, rnd) * wmix;
             // Mix of warm bulbs, cool tube-lights and dim curtained rooms.
@@ -178,7 +212,7 @@ export function createBuildingMaterial(): THREE.MeshStandardMaterial {
         totalEmissiveRadiance += bEmit;`,
       );
   };
-  mat.customProgramCacheKey = () => 'building-v3';
+  mat.customProgramCacheKey = () => (far ? 'building-far-v4' : 'building-v4');
   return mat;
 }
 
@@ -262,7 +296,11 @@ export function createConcreteMaterial(color = 0xb5b0a6): THREE.MeshStandardMate
  * Ground: the land mask (R land, G park, B sand) decides the surface; water
  * pixels are discarded so the sea plane underneath shows through.
  */
-export function createGroundMaterial(mask: THREE.Texture, bounds: { minX: number; minZ: number; width: number; height: number }): THREE.MeshStandardMaterial {
+export function createGroundMaterial(
+  mask: THREE.Texture,
+  bounds: { minX: number; minZ: number; width: number; height: number },
+  roads?: THREE.Texture,
+): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ map: groundTexture(), roughness: 0.95, metalness: 0, envMapIntensity: 0.4 });
   const grass = grassTexture();
   const sand = sandTexture();
@@ -272,6 +310,7 @@ export function createGroundMaterial(mask: THREE.Texture, bounds: { minX: number
     shader.uniforms.uSand = { value: sand };
     shader.uniforms.uWet = worldUniforms.uWet;
     shader.uniforms.uMaskRect = { value: new THREE.Vector4(bounds.minX, bounds.minZ, bounds.width, bounds.height) };
+    shader.uniforms.uRoads = { value: roads ?? null };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vWorldXZ;')
       .replace(
@@ -288,6 +327,7 @@ export function createGroundMaterial(mask: THREE.Texture, bounds: { minX: number
         uniform sampler2D uSand;
         uniform vec4 uMaskRect;
         uniform float uWet;
+        ${roads ? 'uniform sampler2D uRoads;' : ''}
         varying vec2 vWorldXZ;`,
       )
       .replace(
@@ -301,10 +341,17 @@ export function createGroundMaterial(mask: THREE.Texture, bounds: { minX: number
         vec3 col = soil;
         col = mix(col, gr, smoothstep(0.35, 0.65, m.g));
         col = mix(col, sd, smoothstep(0.35, 0.65, m.b));
+        ${
+          roads
+            ? `// Beyond the streamed tiles, roads are painted into the ground so the far city keeps its street grid.
+        float roadCov = texture2D(uRoads, muv).r * smoothstep(320.0, 620.0, length(vViewPosition));
+        col = mix(col, vec3(0.2, 0.2, 0.21), roadCov * 0.9);`
+            : ''
+        }
         diffuseColor.rgb *= col * (1.0 - 0.3 * uWet);`,
       );
   };
-  mat.customProgramCacheKey = () => 'ground-mask';
+  mat.customProgramCacheKey = () => (roads ? 'ground-mask-roads' : 'ground-mask');
   return mat;
 }
 
@@ -372,7 +419,7 @@ export function createFoliageMaterial(): THREE.MeshStandardMaterial {
  * with emissive head/tail lights (aGlow: 1 head, 2 tail) and per-instance
  * brake / hazard state (iState.x brake, iState.y hazard blink).
  */
-export function createTrafficMaterial(): THREE.MeshStandardMaterial {
+export function createTrafficMaterial(lights = true): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.38, metalness: 0.35, envMapIntensity: 0.9 });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNight = worldUniforms.uNight;
@@ -413,11 +460,12 @@ export function createTrafficMaterial(): THREE.MeshStandardMaterial {
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
         float blink = step(0.5, fract(uTime * 1.6));
+        ${lights ? '' : 'if (false)'}
         if (vGlow > 0.5 && vGlow < 1.5) totalEmissiveRadiance += vec3(1.0, 0.95, 0.82) * (0.15 + uNight * 2.4);
         else if (vGlow > 1.5 && vGlow < 2.5) totalEmissiveRadiance += vec3(1.0, 0.05, 0.03) * (0.2 + uNight * 0.9 + vState.x * 2.2);
         else if (vGlow > 2.5) totalEmissiveRadiance += vec3(1.0, 0.55, 0.05) * vState.y * blink * 2.5;`,
       );
   };
-  mat.customProgramCacheKey = () => 'traffic-glow';
+  mat.customProgramCacheKey = () => (lights ? 'traffic-glow' : 'traffic-parked');
   return mat;
 }

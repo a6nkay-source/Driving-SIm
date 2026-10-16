@@ -2,12 +2,13 @@
  * Step 2 of the map pipeline: convert cached OSM data (data/osm/<district>.json)
  * into the streaming map format under public/maps/<district>/.
  *
- *   npm run map:build -- south-mumbai
+ *   npm run map:build -- mumbai
  *
  * Output (all derived from OpenStreetMap, © OpenStreetMap contributors, ODbL):
  *   manifest.json      metadata, bounds, chunk list, spawn, destinations
  *   network.json       road graph, signals, crossings, shoreline, POIs, landmarks
  *   landmask.png       RGB raster: land / park / sand
+ *   skyline.json      tall buildings for the always-loaded distant skyline
  *   chunks/<x>_<z>.json buildings + trees per 400 m tile
  */
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -36,6 +37,7 @@ async function main() {
   await writeFile(resolve(outDir, 'network.json'), JSON.stringify(build.network));
   const m = build.mask;
   await writeFile(resolve(outDir, 'landmask.png'), encodeRgbPng(m.width, m.height, m.r, m.g, m.b));
+  await writeFile(resolve(outDir, 'skyline.json'), JSON.stringify(build.skyline));
   for (const c of build.chunks) {
     await writeFile(resolve(outDir, 'chunks', `${c.cx}_${c.cz}.json`), JSON.stringify(c));
   }

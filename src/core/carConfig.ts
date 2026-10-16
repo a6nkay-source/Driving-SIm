@@ -1,3 +1,4 @@
+import type { PlayerVehicleId } from '../vehicle/fleet';
 import { createStore, loadJSON, saveJSON } from './store';
 
 export type PaintFinish = 'metallic' | 'pearl' | 'matte' | 'gloss';
@@ -52,6 +53,8 @@ export interface CarConfig {
   wing: WingStyle;
   tint: number;
   plate: string;
+  /** Which vehicle to drive (the paint options apply to the GT). */
+  vehicle: PlayerVehicleId;
 }
 
 export const DEFAULT_CAR: CarConfig = {
@@ -61,6 +64,7 @@ export const DEFAULT_CAR: CarConfig = {
   wing: 'stock',
   tint: 0.7,
   plate: 'MH 01 GT 3535',
+  vehicle: 'gtr',
 };
 
 const KEY = 'drive-mumbai:car:v1';

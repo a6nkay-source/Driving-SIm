@@ -6,6 +6,88 @@
  * Browsers only allow audio after a user gesture: call unlock() from a click.
  */
 import type { Settings } from '../core/settings';
+import type { EngineProfile, PlayerVehicleId } from '../vehicle/fleet';
+
+interface ProfileDef {
+  /** Firing events per crankshaft revolution. */
+  fires: number;
+  oscs: [OscillatorType, number, number][];
+  filter: [number, number, number];
+  /** Depth of the per-firing amplitude chop (single-cylinder putt, diesel clatter). */
+  chop: number;
+  turbo: number;
+  limiter: number;
+  intake: number;
+}
+
+const PROFILES: Record<EngineProfile, ProfileDef> = {
+  v6tt: {
+    fires: 3,
+    oscs: [
+      ['sawtooth', 1, 0.55],
+      ['square', 0.5, 0.35],
+      ['sawtooth', 2.005, 0.22],
+      ['triangle', 3, 0.12],
+    ],
+    filter: [260, 0.32, 1800],
+    chop: 0,
+    turbo: 1,
+    limiter: 7050,
+    intake: 1,
+  },
+  // Auto-rickshaw single: a raspy putt-putt.
+  twostroke: {
+    fires: 0.5,
+    oscs: [
+      ['sawtooth', 2, 0.5],
+      ['square', 4, 0.32],
+      ['sawtooth', 6.03, 0.24],
+      ['square', 1, 0.3],
+    ],
+    filter: [650, 0.3, 1500],
+    chop: 0.75,
+    turbo: 0,
+    limiter: 5500,
+    intake: 1.6,
+  },
+  // Premier Padmini 1.1 L four.
+  inline4: {
+    fires: 2,
+    oscs: [
+      ['sawtooth', 1, 0.5],
+      ['square', 0.5, 0.3],
+      ['sawtooth', 2, 0.22],
+      ['triangle', 3, 0.1],
+    ],
+    filter: [300, 0.28, 1100],
+    chop: 0.12,
+    turbo: 0,
+    limiter: 5300,
+    intake: 0.8,
+  },
+  // BEST bus six-cylinder diesel: low, clattery, a little turbo whistle.
+  diesel: {
+    fires: 3,
+    oscs: [
+      ['square', 1, 0.5],
+      ['sawtooth', 0.5, 0.45],
+      ['square', 2, 0.16],
+      ['sawtooth', 4.1, 0.12],
+    ],
+    filter: [170, 0.24, 650],
+    chop: 0.35,
+    turbo: 0.35,
+    limiter: 2550,
+    intake: 0.7,
+  },
+};
+
+const HORNS: Record<PlayerVehicleId, { f: [number, number]; filter: number; q: number; gain: number }> = {
+  gtr: { f: [415, 523], filter: 900, q: 0.9, gain: 0.2 },
+  auto: { f: [610, 616], filter: 1500, q: 2.2, gain: 0.16 },
+  taxi: { f: [370, 440], filter: 800, q: 1, gain: 0.2 },
+  bus: { f: [196, 247], filter: 520, q: 0.8, gain: 0.3 },
+};
 
 export interface EngineSoundState {
   rpm: number;
@@ -22,7 +104,13 @@ export interface AmbienceState {
   traffic: number;
   night: number;
   rain: number;
+  /** People nearby (0..1): crowd murmur. */
+  crowd?: number;
+  /** Railway nearby (0..1): local-train rumble. */
+  rail?: number;
 }
+
+export type HonkKind = 'car' | 'taxi' | 'bus' | 'bus1' | 'auto' | 'bike' | 'truck';
 
 function makeNoiseBuffer(ctx: AudioContext, seconds: number, brown = false): AudioBuffer {
   const len = Math.floor(ctx.sampleRate * seconds);
@@ -75,6 +163,15 @@ export class AudioEngine {
   private windGain!: GainNode;
   private windFilter!: BiquadFilterNode;
   private hornGain!: GainNode;
+  private hornOscs: OscillatorNode[] = [];
+  private hornFilter!: BiquadFilterNode;
+  private hornLevel = 0.2;
+  private chop!: GainNode;
+  private chopLfo!: OscillatorNode;
+  private chopDepth!: GainNode;
+  private profile: ProfileDef = PROFILES.v6tt;
+  private profileId: EngineProfile = 'v6tt';
+  private hornId: PlayerVehicleId = 'gtr';
   private lastBoost = 0;
   private lastGear = 1;
 
@@ -82,6 +179,9 @@ export class AudioEngine {
   private seaGain!: GainNode;
   private trafficGain!: GainNode;
   private rainGain!: GainNode;
+  private crowdGain!: GainNode;
+  private railGain!: GainNode;
+  private honkCount = 0;
   private nextHornAt = 0;
   private nextCrowAt = 0;
   private nextThunderAt = 0;
@@ -161,9 +261,20 @@ export class AudioEngine {
       g.gain.value = gain;
       o.connect(g).connect(mix);
       o.start();
+      (o as unknown as { __gain?: GainNode }).__gain = g;
       this.oscs.push(o);
     }
-    mix.connect(shaper).connect(this.engFilter).connect(this.engGain).connect(this.engineBus);
+    // Per-firing amplitude chop (the putt of a single, the clatter of a diesel).
+    this.chop = ctx.createGain();
+    this.chop.gain.value = 1;
+    this.chopLfo = ctx.createOscillator();
+    this.chopLfo.type = 'square';
+    this.chopLfo.frequency.value = 20;
+    this.chopDepth = ctx.createGain();
+    this.chopDepth.gain.value = 0;
+    this.chopLfo.connect(this.chopDepth).connect(this.chop.gain);
+    this.chopLfo.start();
+    mix.connect(shaper).connect(this.engFilter).connect(this.chop).connect(this.engGain).connect(this.engineBus);
 
     // Intake / exhaust roar: band-passed noise that follows the firing frequency.
     this.intakeFilter = ctx.createBiquadFilter();
@@ -222,8 +333,40 @@ export class AudioEngine {
       o.frequency.value = f;
       o.connect(hornFilter);
       o.start();
+      this.hornOscs.push(o);
     }
+    this.hornFilter = hornFilter;
     hornFilter.connect(this.hornGain).connect(this.fxBus);
+    this.applyProfile();
+  }
+
+  /** Switches the engine and horn voice to match the player's vehicle. */
+  setVehicle(engine: EngineProfile, horn: PlayerVehicleId): void {
+    this.profileId = engine;
+    this.hornId = horn;
+    this.profile = PROFILES[engine];
+    this.applyProfile();
+  }
+
+  private applyProfile(): void {
+    if (!this.ctx || !this.oscs.length) return;
+    const p = PROFILES[this.profileId];
+    this.profile = p;
+    p.oscs.forEach(([type, mult, gain], i) => {
+      const o = this.oscs[i];
+      if (!o) return;
+      o.type = type;
+      this.oscMult[i] = mult;
+      const g = (o as unknown as { __gain?: GainNode }).__gain;
+      if (g) g.gain.value = gain;
+    });
+    this.chopDepth.gain.value = p.chop * 0.5;
+    this.chop.gain.value = 1 - p.chop * 0.35;
+    const h = HORNS[this.hornId];
+    this.hornOscs.forEach((o, i) => (o.frequency.value = h.f[i]));
+    this.hornFilter.frequency.value = h.filter;
+    this.hornFilter.Q.value = h.q;
+    this.hornLevel = h.gain;
   }
 
   private buildAmbience(): void {
@@ -260,6 +403,42 @@ export class AudioEngine {
     this.rainGain = ctx.createGain();
     this.rainGain.gain.value = 0;
     this.loopNoise().connect(rh).connect(rl).connect(this.rainGain).connect(this.ambBus);
+    // Crowd murmur: voice-band noise with a syllabic flutter.
+    const c1 = ctx.createBiquadFilter();
+    c1.type = 'bandpass';
+    c1.frequency.value = 520;
+    c1.Q.value = 0.7;
+    const c2 = ctx.createBiquadFilter();
+    c2.type = 'peaking';
+    c2.frequency.value = 1600;
+    c2.gain.value = 6;
+    const flutter = ctx.createGain();
+    flutter.gain.value = 0.6;
+    const syl = ctx.createOscillator();
+    syl.frequency.value = 3.7;
+    const sylDepth = ctx.createGain();
+    sylDepth.gain.value = 0.3;
+    syl.connect(sylDepth).connect(flutter.gain);
+    syl.start();
+    this.crowdGain = ctx.createGain();
+    this.crowdGain.gain.value = 0;
+    this.loopNoise().connect(c1).connect(c2).connect(flutter).connect(this.crowdGain).connect(this.ambBus);
+    // Local-train rumble with the clack of rail joints.
+    const rf = ctx.createBiquadFilter();
+    rf.type = 'lowpass';
+    rf.frequency.value = 180;
+    const clack = ctx.createGain();
+    clack.gain.value = 0.7;
+    const cl = ctx.createOscillator();
+    cl.type = 'square';
+    cl.frequency.value = 3.1;
+    const clDepth = ctx.createGain();
+    clDepth.gain.value = 0.3;
+    cl.connect(clDepth).connect(clack.gain);
+    cl.start();
+    this.railGain = ctx.createGain();
+    this.railGain.gain.value = 0;
+    this.loopNoise(this.brown).connect(rf).connect(clack).connect(this.railGain).connect(this.ambBus);
   }
 
   applySettings(s: Settings): void {
@@ -289,6 +468,8 @@ export class AudioEngine {
     this.seaGain.gain.setTargetAtTime(0, t, 0.3);
     this.rainGain.gain.setTargetAtTime(0, t, 0.3);
     this.trafficGain.gain.setTargetAtTime(0, t, 0.3);
+    this.crowdGain.gain.setTargetAtTime(0, t, 0.3);
+    this.railGain.gain.setTargetAtTime(0, t, 0.3);
   }
 
   setPaused(p: boolean): void {
@@ -306,18 +487,20 @@ export class AudioEngine {
     const ctx = this.ctx;
     if (!ctx || !this.driving) return;
     const t = ctx.currentTime;
-    const fire = (s.rpm / 60) * 3;
+    const P = this.profile;
+    const fire = (s.rpm / 60) * P.fires;
     this.oscs.forEach((o, i) => o.frequency.setTargetAtTime(fire * this.oscMult[i], t, 0.025));
+    this.chopLfo.frequency.setTargetAtTime(Math.max(4, fire), t, 0.03);
     const load = 0.35 + 0.65 * s.throttle;
-    this.engFilter.frequency.setTargetAtTime(260 + s.rpm * 0.32 + s.throttle * 1800, t, 0.05);
-    const limiter = s.rpm > 7050 ? 0.55 + 0.45 * Math.sin(t * 90) : 1;
+    this.engFilter.frequency.setTargetAtTime(P.filter[0] + s.rpm * P.filter[1] + s.throttle * P.filter[2], t, 0.05);
+    const limiter = s.rpm > P.limiter ? 0.55 + 0.45 * Math.sin(t * 90) : 1;
     this.engGain.gain.setTargetAtTime((0.22 + 0.5 * load) * limiter, t, 0.04);
-    this.intakeFilter.frequency.setTargetAtTime(fire * 3.5, t, 0.05);
-    this.intakeGain.gain.setTargetAtTime(0.03 + s.throttle * 0.16 * (s.rpm / 7000), t, 0.05);
+    this.intakeFilter.frequency.setTargetAtTime(Math.max(120, fire * 3.5), t, 0.05);
+    this.intakeGain.gain.setTargetAtTime((0.03 + s.throttle * 0.16 * Math.min(1.2, s.rpm / P.limiter)) * P.intake, t, 0.05);
     this.turbo.frequency.setTargetAtTime(1800 + s.boost * 3200 + s.rpm * 0.2, t, 0.1);
-    this.turboGain.gain.setTargetAtTime(s.boost * s.throttle * 0.018, t, 0.08);
+    this.turboGain.gain.setTargetAtTime(s.boost * s.throttle * 0.018 * P.turbo, t, 0.08);
     // Blow-off valve when the throttle snaps shut under boost.
-    if (this.lastBoost > 0.6 && s.throttle < 0.1) this.burst(0.18, 2600, 0.22, 'bandpass', 1.5);
+    if (P.turbo >= 1 && this.lastBoost > 0.6 && s.throttle < 0.1) this.burst(0.18, 2600, 0.22, 'bandpass', 1.5);
     this.lastBoost = s.throttle > 0.1 ? s.boost : 0;
     if (s.gear !== this.lastGear && s.gear > 0 && this.lastGear > 0) {
       // Shift: a brief dip and a crackle on up-shifts.
@@ -339,6 +522,8 @@ export class AudioEngine {
     this.seaGain.gain.setTargetAtTime(a.sea * 0.5, t, 0.5);
     this.trafficGain.gain.setTargetAtTime(0.08 + a.traffic * 0.2, t, 0.5);
     this.rainGain.gain.setTargetAtTime(a.rain * 0.28, t, 0.5);
+    this.crowdGain.gain.setTargetAtTime((a.crowd ?? 0) * 0.16, t, 0.6);
+    this.railGain.gain.setTargetAtTime((a.rail ?? 0) * 0.35, t, 0.6);
     if (this.paused) return;
     // Mumbai: somebody is always honking somewhere.
     if (t > this.nextHornAt) {
@@ -358,7 +543,186 @@ export class AudioEngine {
   horn(on: boolean): void {
     const ctx = this.ctx;
     if (!ctx) return;
-    this.hornGain.gain.setTargetAtTime(on && !this.paused ? 0.2 : 0, ctx.currentTime, 0.015);
+    this.hornGain.gain.setTargetAtTime(on && !this.paused ? this.hornLevel : 0, ctx.currentTime, 0.015);
+  }
+
+  /** Output chain for a positioned one-shot: distance gain, air absorption and stereo pan. */
+  private spatial(right: number, fwd: number, level: number, bus: GainNode = this.fxBus): { input: AudioNode; t: number } | null {
+    const ctx = this.ctx;
+    if (!ctx || this.paused || !this.driving) return null;
+    const d = Math.hypot(right, fwd);
+    const g = ctx.createGain();
+    g.gain.value = level / (1 + d / 14);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 9000 / (1 + d / 35);
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = Math.max(-0.9, Math.min(0.9, right / Math.max(4, d)));
+    lp.connect(g).connect(pan).connect(bus);
+    // Disconnect the chain once the sound has finished.
+    setTimeout(() => pan.disconnect(), 6000);
+    return { input: lp, t: ctx.currentTime };
+  }
+
+  /**
+   * A traffic horn at a position relative to the listener (metres to the right
+   * and ahead). Autos peep, buses blare, trucks play "Horn OK Please" tunes.
+   */
+  honkAt(right: number, fwd: number, kind: HonkKind): void {
+    const d = Math.hypot(right, fwd);
+    if (d > 150 || this.honkCount > 5) return;
+    const out = this.spatial(right, fwd, kind === 'bus' || kind === 'bus1' || kind === 'truck' ? 0.4 : 0.28);
+    if (!out) return;
+    const ctx = this.ctx!;
+    const { input, t } = out;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.value = 1;
+    const env = ctx.createGain();
+    env.gain.value = 0;
+    f.connect(env).connect(input);
+    const notes: [number, number, number][] = []; // [freq, start, length]
+    let tones: number[];
+    if (kind === 'auto' || kind === 'bike') {
+      f.frequency.value = kind === 'auto' ? 1400 : 1700;
+      f.Q.value = 2;
+      tones = [kind === 'auto' ? 600 + Math.random() * 80 : 760 + Math.random() * 60];
+      const n = 2 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < n; i++) notes.push([1, i * 0.16, 0.1]);
+    } else if (kind === 'truck') {
+      f.frequency.value = 1100;
+      tones = [1];
+      const tune = Math.random() < 0.5 ? [523, 659, 784, 659, 523] : [440, 554, 659, 554, 880];
+      tune.forEach((fr, i) => notes.push([fr, i * 0.19, 0.17]));
+    } else if (kind === 'bus' || kind === 'bus1') {
+      f.frequency.value = 520;
+      tones = [196, 247];
+      notes.push([1, 0, 0.55 + Math.random() * 0.5]);
+    } else {
+      f.frequency.value = 900;
+      const base = 380 + Math.random() * 160;
+      tones = [base, base * 1.26];
+      const n = 1 + Math.floor(Math.random() * 3);
+      let at = 0;
+      for (let i = 0; i < n; i++) {
+        const len = 0.1 + Math.random() * 0.3;
+        notes.push([1, at, len]);
+        at += len + 0.07;
+      }
+    }
+    let end = 0;
+    if (kind === 'truck') {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      for (const [fr, st, len] of notes) {
+        o.frequency.setValueAtTime(fr, t + st);
+        env.gain.setValueAtTime(1, t + st);
+        env.gain.setValueAtTime(0.0001, t + st + len);
+        end = Math.max(end, st + len);
+      }
+      o.connect(f);
+      o.start(t);
+      o.stop(t + end + 0.05);
+    } else {
+      for (const [, st, len] of notes) {
+        env.gain.setValueAtTime(1, t + st);
+        env.gain.setValueAtTime(0.0001, t + st + len);
+        end = Math.max(end, st + len);
+      }
+      for (const fr of tones) {
+        const o = ctx.createOscillator();
+        o.type = 'square';
+        o.frequency.value = fr;
+        o.connect(f);
+        o.start(t);
+        o.stop(t + end + 0.05);
+      }
+    }
+    this.honkCount++;
+    setTimeout(() => this.honkCount--, (end + 0.2) * 1000);
+  }
+
+  /** Temple ghanta (bright, inharmonic) or church bell (deep), struck a few times. */
+  bell(right: number, fwd: number, church = false): void {
+    const out = this.spatial(right, fwd, church ? 0.5 : 0.32, this.ambBus);
+    if (!out) return;
+    const ctx = this.ctx!;
+    const f0 = church ? 300 + Math.random() * 40 : 720 + Math.random() * 180;
+    const partials = church ? [1, 2, 2.4, 3, 4.2, 5.4] : [1, 2.76, 5.4, 8.93];
+    const strikes = church ? 4 : 3 + Math.floor(Math.random() * 4);
+    for (let k = 0; k < strikes; k++) {
+      const at = out.t + k * (church ? 1.1 : 0.42);
+      partials.forEach((m, i) => {
+        const o = ctx.createOscillator();
+        o.type = 'sine';
+        o.frequency.value = f0 * m;
+        const g = ctx.createGain();
+        const decay = (church ? 3.2 : 2.2) / (1 + i * 0.6);
+        g.gain.setValueAtTime(0, at);
+        g.gain.linearRampToValueAtTime(0.5 / (1 + i), at + 0.004);
+        g.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+        o.connect(g).connect(out.input);
+        o.start(at);
+        o.stop(at + decay + 0.05);
+      });
+    }
+  }
+
+  /** A Mumbai local's two-tone horn in the distance. */
+  trainHorn(right: number, fwd: number): void {
+    const out = this.spatial(right, fwd, 0.55, this.ambBus);
+    if (!out) return;
+    const ctx = this.ctx!;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 850;
+    f.Q.value = 0.8;
+    const env = ctx.createGain();
+    env.gain.value = 0;
+    f.connect(env).connect(out.input);
+    const t = out.t;
+    const blasts: [number, number][] = [
+      [0, 1.1],
+      [1.25, 0.55],
+    ];
+    for (const [st, len] of blasts) {
+      env.gain.setValueAtTime(0, t + st);
+      env.gain.linearRampToValueAtTime(1, t + st + 0.05);
+      env.gain.setValueAtTime(1, t + st + len - 0.08);
+      env.gain.linearRampToValueAtTime(0, t + st + len);
+    }
+    for (const fr of [349, 440, 523]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = fr;
+      o.connect(f);
+      o.start(t);
+      o.stop(t + 1.9);
+    }
+  }
+
+  /** The conductor's bell cord: "ting-ting" (go) on a BEST bus. */
+  busBell(times = 2): void {
+    const out = this.spatial(0.5, 2, 0.5);
+    if (!out) return;
+    const ctx = this.ctx!;
+    for (let k = 0; k < times; k++) {
+      const at = out.t + k * 0.32;
+      for (const [m, a] of [
+        [1, 0.5],
+        [2.4, 0.2],
+        [5.2, 0.08],
+      ]) {
+        const o = ctx.createOscillator();
+        o.frequency.value = 1850 * m;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(a, at);
+        g.gain.exponentialRampToValueAtTime(0.0001, at + 0.6);
+        o.connect(g).connect(out.input);
+        o.start(at);
+        o.stop(at + 0.65);
+      }
+    }
   }
 
   collision(intensity: number): void {

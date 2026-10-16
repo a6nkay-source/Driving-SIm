@@ -3,7 +3,7 @@
  * game runtime. All coordinates are metres in a local tangent plane centred on
  * the district: +X = east, +Z = south (so north is -Z, matching three.js).
  */
-export const MAP_FORMAT_VERSION = 2;
+export const MAP_FORMAT_VERSION = 3;
 
 export const ROAD_KINDS = [
   'motorway',
@@ -47,8 +47,22 @@ export interface Destination {
   id: string;
   name: string;
   nameMr?: string;
+  nameHi?: string;
+  /** Alternative spoken / typed names (e.g. "Victoria Terminus", "VT"). */
+  aliases?: string[];
   x: number;
   z: number;
+}
+
+export interface TrafficMix {
+  car: number;
+  taxi: number;
+  bus: number;
+  auto: number;
+  bike: number;
+  truck: number;
+  /** Auto-rickshaws only spawn north of this local Z (they are banned in the island city). */
+  autoNorthOfZ?: number;
 }
 
 export interface ChunkInfo {
@@ -78,7 +92,9 @@ export interface MapManifest {
   landmask: { file: string; res: number; width: number; height: number; minX: number; minZ: number };
   spawn: { x: number; z: number; label: string };
   destinations: Destination[];
-  traffic: { car: number; taxi: number; bus: number; auto: number };
+  traffic: TrafficMix;
+  /** Tall buildings for the distant skyline (always loaded). */
+  skyline?: { file: string; count: number };
   stats: Record<string, number>;
 }
 
@@ -154,6 +170,16 @@ export interface BuildingData {
   s: BuildingStyle;
   /** Indices of footprint edges that face a road (used for shop fronts). */
   f?: number[];
+}
+
+/** A tall building drawn in the far-distance skyline layer. */
+export interface SkylineTower {
+  /** Chunk key "cx_cz" whose tile contains the full-detail version. */
+  c: string;
+  p: number[];
+  h: number;
+  s: BuildingStyle;
+  id: number;
 }
 
 export interface ChunkData {

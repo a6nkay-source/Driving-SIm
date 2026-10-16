@@ -3,7 +3,9 @@ import { appStore } from '../../app/state';
 import { settingsStore } from '../../core/settings';
 import { useStore } from '../../core/store';
 import type { Telemetry } from '../../drive/DriveScene';
+import { FLEET } from '../../vehicle/fleet';
 import { useController } from '../context';
+import { Captions, CommandBar } from './CommandBar';
 import { drawMap, loadPreview, worldToScreen, type MapPreview } from '../mapPreview';
 
 const ARC_START = -225;
@@ -21,7 +23,7 @@ function arcPath(cx: number, cy: number, r: number, a0: number, a1: number): str
   return `M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1}`;
 }
 
-function Speedo({ max, unit }: { max: number; unit: string }) {
+function Speedo({ max, unit, redline }: { max: number; unit: string; redline: number }) {
   const ticks = [];
   const step = max > 250 ? 20 : 10;
   for (let v = 0; v <= max; v += step) {
@@ -55,7 +57,7 @@ function Speedo({ max, unit }: { max: number; unit: string }) {
       <circle cx="115" cy="115" r="112" fill="url(#dial)" stroke="rgba(200,210,225,0.18)" strokeWidth="1.5" />
       <path d={arcPath(115, 115, 106, ARC_START, ARC_START + ARC_SWEEP)} stroke="rgba(255,255,255,0.06)" strokeWidth="5" fill="none" />
       <path id="hud-rpm" d={arcPath(115, 115, 106, ARC_START, ARC_START + 0.1)} stroke="url(#rpmGrad)" strokeWidth="5" fill="none" strokeLinecap="round" />
-      <path d={arcPath(115, 115, 106, ARC_START + ARC_SWEEP * (7.1 / 8), ARC_START + ARC_SWEEP)} stroke="rgba(255,95,82,0.5)" strokeWidth="5" fill="none" />
+      <path d={arcPath(115, 115, 106, ARC_START + ARC_SWEEP * redline, ARC_START + ARC_SWEEP)} stroke="rgba(255,95,82,0.5)" strokeWidth="5" fill="none" />
       {ticks}
       <g id="hud-needle" style={{ transformOrigin: '115px 115px' }}>
         <line x1="115" y1="115" x2="115" y2="22" stroke="#ffb23f" strokeWidth="3" strokeLinecap="round" />
@@ -63,7 +65,7 @@ function Speedo({ max, unit }: { max: number; unit: string }) {
         <circle cx="115" cy="115" r="3" fill="#05080f" />
       </g>
       <text x="115" y="214" textAnchor="middle" fontSize="9" letterSpacing="3" fill="#5b6270" fontFamily="Rajdhani">
-        RPM ×1000
+        RPM
       </text>
       <text x="115" y="150" textAnchor="middle" fontSize="9" letterSpacing="3" fill="#5b6270" fontFamily="Rajdhani">
         {unit}
@@ -71,6 +73,16 @@ function Speedo({ max, unit }: { max: number; unit: string }) {
     </svg>
   );
 }
+
+const AP_STATUS: Record<string, string> = {
+  driving: 'Cruising',
+  turning: 'Taking the turn',
+  signal: 'Waiting at the signal',
+  traffic: 'Following traffic',
+  arriving: 'Pulling in',
+  arrived: 'Arrived',
+  recovering: 'Backing up',
+};
 
 const TURN_GLYPH: Record<string, string> = { left: '↰', right: '↱', straight: '↑', uturn: '↶', arrive: '◎', 'slight-left': '↖', 'slight-right': '↗' };
 
@@ -87,7 +99,11 @@ export function Hud() {
   const fpsRef = useRef<HTMLDivElement>(null);
   const vignetteRef = useRef<HTMLDivElement>(null);
   const mph = settings.units === 'mph';
-  const max = mph ? 220 : 340;
+  const vehicle = useVehicle(ctrl);
+  const spec = FLEET[vehicle].params;
+  const kmhMax = vehicle === 'auto' ? 80 : vehicle === 'bus' ? 100 : vehicle === 'taxi' ? 160 : 340;
+  const max = mph ? Math.round((kmhMax * 0.621371) / 10) * 10 : kmhMax;
+  const rpmMax = Math.ceil((spec.redline * 1.12) / 1000) * 1000;
 
   useEffect(() => {
     const map = ctrl.drive?.map;
@@ -112,7 +128,7 @@ export function Hud() {
       const speed = Math.abs(t.speed) * (mph ? 2.23694 : 3.6);
       if (kmhRef.current) kmhRef.current.textContent = String(Math.round(speed));
       if (needle) needle.style.transform = `rotate(${(Math.min(speed, max) / max) * ARC_SWEEP - 135}deg)`;
-      if (rpmArc) rpmArc.setAttribute('d', arcPath(115, 115, 106, ARC_START, ARC_START + 0.1 + Math.min(1, t.rpm / 8000) * ARC_SWEEP));
+      if (rpmArc) rpmArc.setAttribute('d', arcPath(115, 115, 106, ARC_START, ARC_START + 0.1 + Math.min(1, t.rpm / rpmMax) * ARC_SWEEP));
       if (gearRef.current) {
         const g = t.gear < 0 ? 'R' : Math.abs(t.speed) < 0.3 && t.throttle < 0.05 ? 'N' : String(t.gear);
         gearRef.current.textContent = g;
@@ -196,7 +212,7 @@ export function Hud() {
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [ctrl, preview, mph, max]);
+  }, [ctrl, preview, mph, max, rpmMax]);
 
   const t = slow;
   const km = (t?.odometer ?? 0) / 1000;
@@ -258,6 +274,20 @@ export function Hud() {
         </div>
       )}
 
+      {t?.autopilot && (
+        <div className="autopilot-pill hud-panel">
+          <span className="dot" aria-hidden />
+          <span className="k">AUTOPILOT</span>
+          <span className="v">
+            {AP_STATUS[t.autopilot.status] ?? 'Driving'} · {Math.round(t.autopilot.target * (mph ? 2.23694 : 3.6))} {mph ? 'mph' : 'km/h'}
+          </span>
+          <span className="hint">Any key takes over</span>
+        </div>
+      )}
+
+      <CommandBar />
+      <Captions />
+
       {t?.checkpoint && (
         <div className="checkpoint-hud hud-panel">
           <div className="cp">
@@ -293,7 +323,7 @@ export function Hud() {
       )}
 
       <div className="speedo">
-        <Speedo max={max} unit={mph ? 'MPH' : 'KM/H'} />
+        <Speedo max={max} unit={mph ? 'MPH' : 'KM/H'} redline={spec.redline / rpmMax} />
         <div className="readout">
           <div className="kmh" ref={kmhRef}>
             0
@@ -327,6 +357,19 @@ export function Hud() {
       )}
     </div>
   );
+}
+
+/** The player's vehicle, re-read when it changes (it lives in the drive scene). */
+function useVehicle(ctrl: ReturnType<typeof useController>) {
+  const [v, setV] = useState(ctrl.drive?.telemetry.vehicle ?? 'gtr');
+  useEffect(() => {
+    const id = setInterval(() => {
+      const cur = ctrl.drive?.telemetry.vehicle;
+      if (cur && cur !== v) setV(cur);
+    }, 300);
+    return () => clearInterval(id);
+  }, [ctrl, v]);
+  return v;
 }
 
 function formatTime(s: number): string {

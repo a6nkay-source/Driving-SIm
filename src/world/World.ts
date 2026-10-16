@@ -7,12 +7,13 @@
 import * as THREE from 'three';
 import { pointInPolygon } from '../map/geometry';
 import { sampleMask, type LoadedMap } from '../map/MapData';
-import type { ChunkData } from '../map/types';
+import { BuildingStyle, type ChunkData } from '../map/types';
 import type { CollisionWorld } from '../physics/CollisionWorld';
 import { buildBuildingGeometry, tankMesh } from './BuildingBuilder';
 import { createBuildingMaterial, createConcreteMaterial, createMarkingMaterial, createRoadMaterial, createSidewalkMaterial } from './materials';
 import { buildLamps, buildShopSigns, buildTrees, placeLamps } from './Props';
 import { buildRoadChunk, indexEdgesByChunk, makeRoadContext, type RoadContext } from './RoadBuilder';
+import { buildParked, buildVendors, placeParked, placeVendors, type Vendor } from './StreetLife';
 
 interface ChunkState {
   key: string;
@@ -46,7 +47,13 @@ export class World {
   private shadows: boolean;
   private viewDistance: number;
   private disposed = false;
+  private streetLife = true;
+  private vendors = new Map<string, Vendor[]>();
+  /** Temples, churches and other places of worship (centroids) per tile, for bells. */
+  private shrines = new Map<string, [number, number][]>();
   builtCount = 0;
+  /** Notified when a tile's detailed geometry appears or disappears (far-layer hand-off). */
+  onTileVisibility: ((cx: number, cz: number, loaded: boolean) => void) | null = null;
 
   constructor(
     private readonly map: LoadedMap,
@@ -232,6 +239,19 @@ export class World {
           tanks.userData.casts = true;
           g.add(tanks);
         }
+        const shrines: [number, number][] = [];
+        for (const b of data.buildings) {
+          if (b.s !== BuildingStyle.Religious) continue;
+          let sx = 0;
+          let sz = 0;
+          const n = b.p.length / 2;
+          for (let i = 0; i < n; i++) {
+            sx += b.p[i * 2];
+            sz += b.p[i * 2 + 1];
+          }
+          shrines.push([sx / n, sz / n]);
+        }
+        if (shrines.length) this.shrines.set(key, shrines);
         const shops = buildShopSigns(data.buildings, cx * 1000 + cz);
         if (shops) {
           shops.userData.ownGeometry = true;
@@ -264,11 +284,60 @@ export class World {
     for (const o of lampObjs.meshes) g.add(o);
     circles.push(...lampObjs.circles);
 
+    // Parked cars and two-wheelers, and street vendors (busier in commercial blocks).
+    if (this.streetLife) {
+      const avoid: [number, number][] = lamps.map((l) => [l.x, l.z]);
+      const frontage = buildings.reduce((n, b) => n + (b.f?.length ? 1 : 0), 0);
+      const opts = {
+        graph: this.map.graph,
+        edgeIds,
+        inChunk,
+        nodeRadius: this.roadCtx.nodeRadius,
+        blocked,
+        avoid,
+        autoNorthOfZ: m.traffic.autoNorthOfZ,
+        seed: cx * 7919 + cz * 104729,
+      };
+      const parked = buildParked(placeParked(opts));
+      for (const o of parked.meshes) g.add(o);
+      circles.push(...parked.circles);
+      const vendors = placeVendors({ ...opts, avoid: [...avoid, ...this.lastParked(parked.circles)], commercial: frontage >= 18 });
+      const vendorObjs = buildVendors(vendors);
+      for (const o of vendorObjs.meshes) g.add(o);
+      circles.push(...vendorObjs.circles);
+      this.vendors.set(key, vendors);
+    }
+
     this.collision.addGroup(key, segs, circles, polys);
     this.group.add(g);
     const props = g.children.filter((o) => (o as THREE.InstancedMesh).isInstancedMesh && o.name !== 'pillars');
     this.chunks.set(key, { key, group: g, props, propsVisible: true });
     this.builtCount++;
+    this.onTileVisibility?.(cx, cz, true);
+  }
+
+  private lastParked(circles: number[]): [number, number][] {
+    const out: [number, number][] = [];
+    for (let i = 0; i < circles.length; i += 3) out.push([circles[i], circles[i + 1]]);
+    return out;
+  }
+
+  /** Street vendors within r metres (for hawker calls). */
+  vendorsNear(x: number, z: number, r: number): Vendor[] {
+    const out: Vendor[] = [];
+    for (const list of this.vendors.values()) for (const v of list) if (Math.abs(v.x - x) < r && Math.abs(v.z - z) < r && Math.hypot(v.x - x, v.z - z) < r) out.push(v);
+    return out;
+  }
+
+  /** Places of worship within r metres. */
+  shrinesNear(x: number, z: number, r: number): [number, number][] {
+    const out: [number, number][] = [];
+    for (const list of this.shrines.values()) for (const p of list) if (Math.hypot(p[0] - x, p[1] - z) < r) out.push(p);
+    return out;
+  }
+
+  setStreetLife(on: boolean): void {
+    this.streetLife = on;
   }
 
   private unload(key: string, st: ChunkState): void {
@@ -284,7 +353,11 @@ export class World {
       } else mesh.geometry.dispose();
     });
     this.collision.removeGroup(key);
+    this.vendors.delete(key);
+    this.shrines.delete(key);
     this.chunks.delete(key);
+    const [ucx, ucz] = key.split('_').map(Number);
+    this.onTileVisibility?.(ucx, ucz, false);
     this.requested.delete(key);
   }
 

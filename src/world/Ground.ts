@@ -31,9 +31,10 @@ export function buildGround(map: LoadedMap, buildingMaterial: THREE.Material, se
   const margin = 1600;
   const gw = b.maxX - b.minX + margin * 2;
   const gh = b.maxZ - b.minZ + margin * 2;
+  const roadTex = roadRaster(map);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(gw, gh).rotateX(-Math.PI / 2),
-    createGroundMaterial(tex, { minX: m.minX, minZ: m.minZ, width: m.width * m.res, height: m.height * m.res }),
+    createGroundMaterial(tex, { minX: m.minX, minZ: m.minZ, width: m.width * m.res, height: m.height * m.res }, roadTex ?? undefined),
   );
   ground.position.set((b.minX + b.maxX) / 2, 0, (b.minZ + b.maxZ) / 2);
   ground.receiveShadow = true;
@@ -227,12 +228,54 @@ export function buildGround(map: LoadedMap, buildingMaterial: THREE.Material, se
     maskTexture: tex,
     dispose() {
       tex.dispose();
+      roadTex?.dispose();
       group.traverse((o) => {
         const mm = o as THREE.Mesh;
         if (mm.isMesh) mm.geometry.dispose();
       });
     },
   };
+}
+
+/** Rasterises the road network over the land-mask extent (for the distant ground). */
+function roadRaster(map: LoadedMap): THREE.CanvasTexture | null {
+  const m = map.mask;
+  const worldW = m.width * m.res;
+  const worldH = m.height * m.res;
+  const scale = Math.min(1, 2048 / Math.max(m.width, m.height));
+  const W = Math.max(1, Math.round(m.width * scale));
+  const H = Math.max(1, Math.round(m.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#fff';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const sx = W / worldW;
+  const sz = H / worldH;
+  for (const e of map.network.edges) {
+    if (e.h) continue;
+    ctx.lineWidth = Math.max(1, e.w * sx);
+    ctx.beginPath();
+    for (let i = 0; i < e.p.length; i += 2) {
+      const x = (e.p[i] - m.minX) * sx;
+      const y = (e.p[i + 1] - m.minZ) * sz;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(canvas);
+  // Canvas row 0 is min Z, matching the mask's UV convention.
+  t.flipY = false;
+  t.colorSpace = THREE.NoColorSpace;
+  t.anisotropy = 4;
+  t.needsUpdate = true;
+  return t;
 }
 
 let tetraGeo: THREE.BufferGeometry | null = null;

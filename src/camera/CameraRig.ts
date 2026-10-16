@@ -23,8 +23,22 @@ export interface CameraTarget {
   steer: number;
 }
 
+/** Per-vehicle camera geometry (a bus needs a higher, longer chase view). */
+export interface CameraProfile {
+  /** Chase distance / height multiplier. */
+  scale: number;
+  /** Eye position in the body frame (x right, y up, z back). */
+  cockpit: [number, number, number];
+  hood: [number, number, number];
+  /** Height of the look-at point above the vehicle origin. */
+  lookHeight: number;
+}
+
+export const GT_CAMERA: CameraProfile = { scale: 1, cockpit: [0.37, 1.13, 0.66], hood: [0, 1.2, -0.65], lookHeight: 1.15 };
+
 export class CameraRig {
   mode: CameraMode = 'chase';
+  private profile: CameraProfile = GT_CAMERA;
   private pos = new THREE.Vector3();
   private look = new THREE.Vector3();
   private yaw = 0;
@@ -49,6 +63,11 @@ export class CameraRig {
   }
 
   reset(): void {
+    this.snap = true;
+  }
+
+  setProfile(p: CameraProfile): void {
+    this.profile = p;
     this.snap = true;
   }
 
@@ -77,8 +96,9 @@ export class CameraRig {
       while (dy < -Math.PI) dy += Math.PI * 2;
       this.yaw += this.snap ? dy : dy * (1 - Math.exp(-dt * 4.2));
       const far = this.mode === 'far';
-      const dist = (far ? 9.6 : 6.3) + Math.min(2.2, speed * 0.028);
-      const height = (far ? 3.3 : 2.05) + Math.min(0.6, speed * 0.006);
+      const k = this.profile.scale;
+      const dist = (far ? 9.6 : 6.3) * k + Math.min(2.2, speed * 0.028);
+      const height = (far ? 3.3 : 2.05) * k + Math.min(0.6, speed * 0.006);
       const bx = -Math.sin(this.yaw);
       const bz = -Math.cos(this.yaw);
       let px = t.x - bx * dist;
@@ -95,7 +115,7 @@ export class CameraRig {
       this.tmp.set(px, py, pz);
       if (this.snap) this.pos.copy(this.tmp);
       else this.pos.lerp(this.tmp, 1 - Math.exp(-dt * 9));
-      this.look.set(t.x + fx * 3.5, t.y + 1.15, t.z + fz * 3.5);
+      this.look.set(t.x + fx * 3.5, t.y + this.profile.lookHeight, t.z + fz * 3.5);
       cam.position.copy(this.pos);
       cam.up.set(0, 1, 0);
       cam.lookAt(this.look);
@@ -104,7 +124,7 @@ export class CameraRig {
       // Locked to the car body.
       const cockpit = this.mode === 'cockpit';
       // Right-hand drive: the driver's eyes sit behind the wheel on the right.
-      const local = cockpit ? new THREE.Vector3(0.37, 1.13, 0.66) : new THREE.Vector3(0, 1.2, -0.65);
+      const local = new THREE.Vector3(...(cockpit ? this.profile.cockpit : this.profile.hood));
       this.e.set(t.pitch, t.heading, t.roll);
       this.q.setFromEuler(this.e);
       local.applyQuaternion(this.q);

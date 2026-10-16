@@ -39,7 +39,7 @@ export const FALLBACK_CONFIG: DistrictConfig = {
     place('harbour-garden', 'Harbour Garden', 555, 375),
     place('east-gate', 'East Gate', 920, -600),
   ],
-  traffic: { car: 0.55, taxi: 0.3, bus: 0.1, auto: 0.05 },
+  traffic: { car: 0.45, taxi: 0.25, bus: 0.08, auto: 0.1, bike: 0.15, truck: 0.05 },
 };
 
 export function generateSyntheticOsm(seed = 7): { osm: OverpassResult; config: DistrictConfig } {

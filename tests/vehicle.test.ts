@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { AUTO_PARAMS, BUS_PARAMS, FLEET, FLEET_ORDER, TAXI_PARAMS } from '../src/vehicle/fleet';
 import {
   createVehicleState,
   GT_PARAMS,
   speedKmh,
   stepVehicle,
+  torqueCurve,
   type VehicleControls,
   type VehicleEnv,
+  type VehicleParams,
   type VehicleState,
 } from '../src/vehicle/VehiclePhysics';
 
@@ -180,5 +183,53 @@ describe('vehicle physics', () => {
     run(s, { throttle: 0.6 }, 4, ramp);
     expect(s.y).toBeGreaterThan(1);
     expect(s.pitch).toBeGreaterThan(0.03);
+  });
+});
+
+describe('drivable fleet', () => {
+  const topSpeed = (p: VehicleParams, seconds = 70) => {
+    const s = createVehicleState();
+    for (let i = 0; i < seconds / DT; i++) stepVehicle(s, { throttle: 1, brake: 0, steer: 0, handbrake: 0 }, p, DT, flat);
+    return speedKmh(s);
+  };
+
+  it('gives each vehicle a believable top speed', () => {
+    expect(topSpeed(AUTO_PARAMS)).toBeGreaterThan(55);
+    expect(topSpeed(AUTO_PARAMS)).toBeLessThan(70);
+    expect(topSpeed(TAXI_PARAMS)).toBeGreaterThan(105);
+    expect(topSpeed(TAXI_PARAMS)).toBeLessThan(135);
+    // The BEST bus is governed to 70 km/h.
+    expect(topSpeed(BUS_PARAMS)).toBeGreaterThan(60);
+    expect(topSpeed(BUS_PARAMS)).toBeLessThan(72);
+  });
+
+  it('pulls away from rest in every vehicle (the launch rpm suits each engine)', () => {
+    for (const id of FLEET_ORDER) {
+      const s = createVehicleState();
+      for (let i = 0; i < 3 / DT; i++) stepVehicle(s, { throttle: 1, brake: 0, steer: 0, handbrake: 0 }, FLEET[id].params, DT, flat);
+      expect(s.vx, id).toBeGreaterThan(3);
+    }
+  });
+
+  it('turns the rickshaw tighter than the bus', () => {
+    const radius = (p: VehicleParams) => {
+      const s = createVehicleState();
+      for (let i = 0; i < 15 / DT; i++) stepVehicle(s, { throttle: speedKmh(s) < 15 ? 0.5 : 0, brake: 0, steer: 1, handbrake: 0 }, p, DT, flat);
+      return Math.abs(s.vx / s.yawRate);
+    };
+    expect(radius(AUTO_PARAMS)).toBeLessThan(4.5);
+    expect(radius(BUS_PARAMS)).toBeGreaterThan(9);
+  });
+
+  it('interpolates custom torque curves', () => {
+    expect(torqueCurve(1500, AUTO_PARAMS)).toBeCloseTo(12);
+    expect(torqueCurve(4000, AUTO_PARAMS)).toBeCloseTo(17.25);
+    expect(torqueCurve(9000, AUTO_PARAMS)).toBeCloseTo(16);
+    // The GT keeps its original curve.
+    expect(torqueCurve(4000)).toBe(632);
+  });
+
+  it('keeps the GT exactly as tuned before', () => {
+    expect(FLEET.gtr.params).toBe(GT_PARAMS);
   });
 });

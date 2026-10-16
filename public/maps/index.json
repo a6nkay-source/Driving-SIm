@@ -1,18 +1,10 @@
 [
  {
-  "id": "south-mumbai",
-  "name": "South Mumbai",
-  "blurb": "Marine Drive, Nariman Point, Churchgate, Fort, Colaba and the Gateway of India.",
+  "id": "mumbai",
+  "name": "Mumbai — Colaba to Bandra",
+  "blurb": "One connected island city: Colaba, Fort, Marine Drive, Malabar Hill, Girgaon, Mahalaxmi, Worli, Lower Parel, Prabhadevi, Dadar and Bandra West, joined by the Bandra–Worli Sea Link.",
   "real": true,
-  "roadKm": 291.3,
-  "buildings": 4601
- },
- {
-  "id": "bandra-west",
-  "name": "Bandra West",
-  "blurb": "Bandstand, Carter Road, Hill Road, Linking Road and the Bandra Reclamation.",
-  "real": true,
-  "roadKm": 147.3,
-  "buildings": 3673
+  "roadKm": 1301.2,
+  "buildings": 20951
  }
 ]

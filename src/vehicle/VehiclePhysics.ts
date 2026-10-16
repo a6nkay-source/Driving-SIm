@@ -46,6 +46,21 @@ export interface VehicleParams {
   rearGripBias: number;
   /** Stability control strength (yaw-rate correction, 1/s). */
   stability: number;
+  /** Full-load torque curve as [rpm, N·m] points (defaults to the GT's twin-turbo V6). */
+  torque?: [number, number][];
+  /** Share of torque that depends on turbo boost (0 = naturally aspirated). */
+  turbo?: number;
+  /** Clutch-slip engine speed when pulling away from rest. */
+  launchRpm?: number;
+  /** Engine-braking force (N) at the redline. */
+  engineBrake?: number;
+  /** Speed governor (m/s) — buses and rickshaws are limited. */
+  topSpeed?: number;
+  /** Collision circles: centre offsets along the body (m) and their radius. */
+  circles?: number[];
+  radius?: number;
+  /** Visual body-roll multiplier (tall, narrow vehicles lean more). */
+  rollGain?: number;
 }
 
 /** Tuned to feel like a ~570 PS twin-turbo AWD coupé (0–100 km/h ≈ 3 s). */
@@ -183,7 +198,18 @@ const smooth = (e0: number, e1: number, x: number) => {
 };
 
 /** Engine torque (N·m) at full load. */
-export function torqueCurve(rpm: number): number {
+export function torqueCurve(rpm: number, p?: VehicleParams): number {
+  const pts = p?.torque;
+  if (pts) {
+    if (rpm <= pts[0][0]) return pts[0][1];
+    for (let i = 1; i < pts.length; i++) {
+      if (rpm <= pts[i][0]) {
+        const t = (rpm - pts[i - 1][0]) / (pts[i][0] - pts[i - 1][0]);
+        return pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t;
+      }
+    }
+    return pts[pts.length - 1][1];
+  }
   if (rpm < 1500) return 330 + (rpm - 900) * 0.25;
   if (rpm < 3300) return 480 + ((rpm - 1500) / 1800) * 150;
   if (rpm < 5800) return 632;
@@ -275,13 +301,15 @@ export function stepVehicle(s: VehicleState, c: VehicleControls, p: VehicleParam
   const total = ratio * p.finalDrive;
   const wheelRpm = (Math.abs(s.vx) / p.wheelRadius) * (60 / TAU);
   let rpm = wheelRpm * total;
-  const clutchSlip = p.idleRpm + drive * 3000 * (1 - smooth(4, 14, Math.abs(s.vx)));
+  const clutchSlip = p.idleRpm + drive * ((p.launchRpm ?? 3900) - p.idleRpm) * (1 - smooth(4, 14, Math.abs(s.vx)));
   rpm = Math.max(rpm, clutchSlip, p.idleRpm);
   const boostTarget = drive * clamp((rpm - 1800) / 2600, 0.2, 1);
   const tau = boostTarget > s.boost ? 0.32 : 0.1;
   s.boost += (boostTarget - s.boost) * (1 - Math.exp(-dt / tau));
-  let torque = torqueCurve(Math.min(rpm, p.redline)) * (0.58 + 0.42 * s.boost) * drive;
+  const turbo = p.turbo ?? 0.42;
+  let torque = torqueCurve(Math.min(rpm, p.redline), p) * (1 - turbo + turbo * s.boost) * drive;
   if (rpm > p.redline + 60) torque = 0;
+  if (p.topSpeed !== undefined && !reverse) torque *= 1 - smooth(p.topSpeed - 1.5, p.topSpeed, s.vx);
   if (s.shiftTimer > 0) {
     s.shiftTimer -= dt;
     torque *= 0.2;
@@ -311,7 +339,7 @@ export function stepVehicle(s: VehicleState, c: VehicleControls, p: VehicleParam
   fxR -= dir * brakeF * (1 - p.brakeBias);
   if (handbrake > 0) fxR -= dir * mu * fzR * 0.85 * handbrake;
   // Engine braking when coasting in gear.
-  if (drive < 0.05 && !reverse) fxR -= dir * 1100 * (s.rpm / p.redline);
+  if (drive < 0.05 && !reverse) fxR -= dir * (p.engineBrake ?? 1100) * (s.rpm / p.redline);
 
   const capF = mu * fzF;
   const capR = mu * fzR;
@@ -419,7 +447,8 @@ export function stepVehicle(s: VehicleState, c: VehicleControls, p: VehicleParam
 
   // ---- Visual body motion (springy pitch and roll).
   const pitchTarget = clamp(s.accelLong * 0.0042, -0.045, 0.04);
-  const rollTarget = clamp(-s.accelLat * 0.0062, -0.07, 0.07);
+  const rollGain = p.rollGain ?? 1;
+  const rollTarget = clamp(-s.accelLat * 0.0062 * rollGain, -0.07 * rollGain, 0.07 * rollGain);
   const k = 120;
   const d = 16;
   s.bodyPitchVel += ((pitchTarget - s.bodyPitch) * k - s.bodyPitchVel * d) * dt;

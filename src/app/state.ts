@@ -44,7 +44,7 @@ export const appStore = createStore<AppState>({
   toasts: [],
   districts: [],
   session: {
-    district: 'south-mumbai',
+    district: 'mumbai',
     start: 'spawn',
     destination: 'gateway',
     customDestination: null,
@@ -69,3 +69,18 @@ export function setSession(patch: Partial<Session>): void {
 export function go(screen: Screen): void {
   appStore.set({ screen });
 }
+
+/** The command bar and voice-command state shown over the HUD. */
+export interface CommandState {
+  open: boolean;
+  listening: boolean;
+  /** Live transcript while listening. */
+  interim: string;
+  heard: string;
+  reply: string;
+  replyOk: boolean;
+  /** Last voice error (permission denied, no microphone, unsupported). */
+  error: string;
+}
+
+export const commandStore = createStore<CommandState>({ open: false, listening: false, interim: '', heard: '', reply: '', replyOk: true, error: '' });

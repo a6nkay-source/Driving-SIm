@@ -6,9 +6,9 @@ import { useStore } from '../../core/store';
 import { useController } from '../context';
 
 const ITEMS = [
-  { id: 'play', label: 'Play', sub: 'Free roam · checkpoints · waypoints', shot: 0 },
-  { id: 'garage', label: 'Garage', sub: 'Paint · wheels · calipers · aero', shot: 2 },
-  { id: 'map', label: 'Map', sub: 'Districts · start · destination', shot: 3 },
+  { id: 'play', label: 'Play', sub: 'Free roam · autopilot · voice commands', shot: 0 },
+  { id: 'garage', label: 'Garage', sub: 'GT · rickshaw · taxi · BEST bus', shot: 2 },
+  { id: 'map', label: 'Map', sub: 'Colaba to Bandra · start · destination', shot: 3 },
   { id: 'settings', label: 'Settings', sub: 'Graphics · audio · controls', shot: 1 },
   { id: 'about', label: 'About', sub: 'Credits · data · licences', shot: 0 },
 ] as const;
@@ -74,7 +74,7 @@ export function MainMenu() {
           </h1>
           <div className="brand-sub">
             <span className="mr">मुंबई</span>
-            <span>Real OpenStreetMap streets · Marine Drive to Colaba</span>
+            <span>Real OpenStreetMap streets · Colaba to Bandra</span>
           </div>
         </div>
         <ul className="menu-list" role="menu">

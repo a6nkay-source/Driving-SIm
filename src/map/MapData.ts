@@ -6,7 +6,7 @@
 import { buildDistrict } from './pipeline/index';
 import { generateSyntheticOsm } from './fallback';
 import { RoadGraph } from './RoadGraph';
-import { MAP_FORMAT_VERSION, type ChunkData, type MapIndexEntry, type MapManifest, type NetworkData } from './types';
+import { MAP_FORMAT_VERSION, type ChunkData, type MapIndexEntry, type MapManifest, type NetworkData, type SkylineTower } from './types';
 
 export interface RuntimeMask {
   width: number;
@@ -23,6 +23,8 @@ export interface LoadedMap {
   network: NetworkData;
   graph: RoadGraph;
   mask: RuntimeMask;
+  /** Tall buildings for the always-loaded far skyline layer. */
+  skyline: SkylineTower[];
   fallback: boolean;
   fallbackReason?: string;
   getChunk(cx: number, cz: number): Promise<ChunkData | null>;
@@ -101,6 +103,15 @@ export async function loadMap(id: string, onProgress: Progress): Promise<LoadedM
     validateNetwork(network);
     onProgress(0.28, 'Decoding coastline and parks');
     const mask = await decodeMask(`${dir}${manifest.landmask.file}`, manifest);
+    onProgress(0.31, 'Loading the skyline');
+    let skyline: SkylineTower[] = [];
+    if (manifest.skyline) {
+      try {
+        skyline = await fetchJSON<SkylineTower[]>(`${dir}${manifest.skyline.file}`);
+      } catch (err) {
+        console.warn('Skyline layer unavailable', err);
+      }
+    }
     onProgress(0.34, 'Building road graph');
     const graph = new RoadGraph(network);
     const known = new Set(manifest.chunks.map((c) => `${c.cx}_${c.cz}`));
@@ -110,6 +121,7 @@ export async function loadMap(id: string, onProgress: Progress): Promise<LoadedM
       network,
       graph,
       mask,
+      skyline,
       fallback: false,
       getChunk(cx, cz) {
         const key = `${cx}_${cz}`;
@@ -151,6 +163,7 @@ export function buildFallbackSync(): Omit<LoadedMap, 'fallbackReason'> {
     network: build.network,
     graph: new RoadGraph(build.network),
     mask: { width: m.width, height: m.height, res: m.res, minX: m.minX, minZ: m.minZ, rgba },
+    skyline: build.skyline,
     fallback: true,
     getChunk: (cx, cz) => Promise.resolve(chunks.get(`${cx}_${cz}`) ?? null),
   };

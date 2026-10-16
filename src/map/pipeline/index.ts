@@ -14,6 +14,7 @@ import {
   type MapManifest,
   type NetworkData,
   type Poi,
+  type SkylineTower,
 } from '../types';
 import { collectBuildings, joinRings, processBuildings } from './buildings';
 import { buildLandMask, extractShoreline, type LandMask } from './landmask';
@@ -29,8 +30,46 @@ export interface DistrictBuild {
   network: NetworkData;
   chunks: ChunkData[];
   mask: LandMask;
+  skyline: SkylineTower[];
   index: MapIndexEntry;
   log: string[];
+}
+
+/** Buildings at least this tall are also drawn in the always-loaded far layer. */
+export const SKYLINE_MIN_HEIGHT = 14;
+/** Below this height far-layer buildings are simplified to their bounding box. */
+export const SKYLINE_FULL_HEIGHT = 38;
+
+/** Minimum-area-ish oriented box of a ring (longest-edge orientation), as a 4-point ring. */
+function boxRing(ring: number[]): number[] {
+  let best = 0;
+  let ang = 0;
+  const n = ring.length;
+  for (let i = 0; i < n; i += 2) {
+    const j = (i + 2) % n;
+    const l = Math.hypot(ring[j] - ring[i], ring[j + 1] - ring[i + 1]);
+    if (l > best) {
+      best = l;
+      ang = Math.atan2(ring[j + 1] - ring[i + 1], ring[j] - ring[i]);
+    }
+  }
+  const ux = Math.cos(ang);
+  const uz = Math.sin(ang);
+  let u0 = Infinity;
+  let u1 = -Infinity;
+  let v0 = Infinity;
+  let v1 = -Infinity;
+  for (let i = 0; i < n; i += 2) {
+    const u = ring[i] * ux + ring[i + 1] * uz;
+    const v = -ring[i] * uz + ring[i + 1] * ux;
+    u0 = Math.min(u0, u);
+    u1 = Math.max(u1, u);
+    v0 = Math.min(v0, v);
+    v1 = Math.max(v1, v);
+  }
+  const pt = (u: number, v: number) => [round1(u * ux - v * uz), round1(u * uz + v * ux)];
+  // Counter-clockwise (positive signed area) like every other ring.
+  return [...pt(u0, v0), ...pt(u1, v0), ...pt(u1, v1), ...pt(u0, v1)];
 }
 
 const PARK_LEISURE = new Set(['park', 'garden', 'playground']);
@@ -155,7 +194,7 @@ export function buildDistrict(osm: OverpassResult, cfg: DistrictConfig, opts: { 
 
   const mask = buildLandMask({
     bounds,
-    res: opts.maskRes ?? 3,
+    res: opts.maskRes ?? cfg.maskRes ?? 3,
     coastlines,
     water,
     parks: parkRings,
@@ -232,10 +271,23 @@ export function buildDistrict(osm: OverpassResult, cfg: DistrictConfig, opts: { 
     if (!c) chunkMap.set(key, (c = { cx, cz, buildings: [], trees: [] }));
     return c;
   };
+  const skyline: SkylineTower[] = [];
   for (const b of bres.buildings) {
     const [cx, cz] = polygonCentroid(b.p);
-    chunkFor(cx, cz).buildings.push(b);
+    const chunk = chunkFor(cx, cz);
+    chunk.buildings.push(b);
+    if (b.h >= SKYLINE_MIN_HEIGHT) {
+      let ring = b.h >= SKYLINE_FULL_HEIGHT ? b.p : boxRing(b.p);
+      if (signedArea(ring) < 0) {
+        const r: number[] = [];
+        for (let i = ring.length - 2; i >= 0; i -= 2) r.push(ring[i], ring[i + 1]);
+        ring = r;
+      }
+      skyline.push({ c: `${chunk.cx}_${chunk.cz}`, p: ring, h: b.h, s: b.s, id: b.id });
+    }
   }
+  const towers = skyline.filter((t) => t.h >= SKYLINE_FULL_HEIGHT).length;
+  log.push(`far layer: ${skyline.length} buildings ≥ ${SKYLINE_MIN_HEIGHT} m, ${towers} towers ≥ ${SKYLINE_FULL_HEIGHT} m (tallest ${Math.round(Math.max(0, ...skyline.map((t) => t.h)))} m)`);
   for (let i = 0; i < trees.length; i += 3) chunkFor(trees[i], trees[i + 1]).trees.push(trees[i], trees[i + 1], trees[i + 2]);
   const chunks = [...chunkMap.values()].sort((a, b) => a.cz - b.cz || a.cx - b.cx);
 
@@ -278,9 +330,26 @@ export function buildDistrict(osm: OverpassResult, cfg: DistrictConfig, opts: { 
     spawn: { x: round1(sx), z: round1(sz), label: cfg.spawn.label },
     destinations: cfg.destinations.map((d) => {
       const [x, z] = proj.toLocal(d.lat, d.lon);
-      return { id: d.id, name: d.name, ...(d.nameMr ? { nameMr: d.nameMr } : {}), x: round1(x), z: round1(z) };
+      return {
+        id: d.id,
+        name: d.name,
+        ...(d.nameMr ? { nameMr: d.nameMr } : {}),
+        ...(d.nameHi ? { nameHi: d.nameHi } : {}),
+        ...(d.aliases ? { aliases: d.aliases } : {}),
+        x: round1(x),
+        z: round1(z),
+      };
     }),
-    traffic: cfg.traffic,
+    traffic: {
+      car: cfg.traffic.car,
+      taxi: cfg.traffic.taxi,
+      bus: cfg.traffic.bus,
+      auto: cfg.traffic.auto,
+      bike: cfg.traffic.bike,
+      truck: cfg.traffic.truck,
+      ...(cfg.traffic.autoNorthOfLat !== undefined ? { autoNorthOfZ: round1(proj.toLocal(cfg.traffic.autoNorthOfLat, clon)[1]) } : {}),
+    },
+    skyline: { file: 'skyline.json', count: skyline.length },
     stats: {
       roadKm: net.stats.roadKm,
       edges: net.stats.edges,
@@ -300,6 +369,7 @@ export function buildDistrict(osm: OverpassResult, cfg: DistrictConfig, opts: { 
     network,
     chunks,
     mask,
+    skyline,
     log,
     index: {
       id: cfg.id,

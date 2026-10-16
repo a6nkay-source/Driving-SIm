@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { applyQualityPreset, DEFAULT_SETTINGS, settingsStore, type CameraMode, type Quality, type Settings } from '../../core/settings';
+import { applyQualityPreset, DEFAULT_SETTINGS, settingsStore, type CameraMode, type Quality, type Settings, type VoiceLang, type VoicePack } from '../../core/settings';
 import { useStore } from '../../core/store';
 import { BackButton } from '../components/BackButton';
 import { useController } from '../context';
@@ -96,18 +96,6 @@ export function SettingsScreen() {
             <Row label="View distance" hint="City tiles streamed around the car">
               <Slider label="View distance" value={s.viewDistance} min={300} max={1600} step={50} onChange={(v) => set({ viewDistance: v })} format={(v) => `${v} m`} />
             </Row>
-            <Row label="Traffic density">
-              <Chips<number>
-                value={s.trafficDensity}
-                options={[
-                  [0, 'Off'],
-                  [1, 'Light'],
-                  [2, 'Normal'],
-                  [3, 'Heavy'],
-                ]}
-                onChange={(v) => set({ trafficDensity: v })}
-              />
-            </Row>
             <Row label="Show FPS">
               <Toggle label="Show FPS" on={s.showFps} onChange={(v) => set({ showFps: v })} />
             </Row>
@@ -131,8 +119,29 @@ export function SettingsScreen() {
             <Row label="Mute all" hint="Shortcut: M">
               <Toggle label="Mute" on={s.muted} onChange={(v) => set({ muted: v })} />
             </Row>
+            <Row label="Street voices" hint="Hawkers, conductors, passers-by and guidance">
+              <Chips<VoicePack>
+                value={s.voicePack}
+                options={[
+                  ['mix', 'हिंदी + मराठी'],
+                  ['hi', 'हिंदी'],
+                  ['mr', 'मराठी'],
+                  ['en', 'English'],
+                  ['off', 'Off'],
+                ]}
+                onChange={(v) => set({ voicePack: v })}
+              />
+            </Row>
+            <Row label="Voice volume">
+              <Slider label="Voice volume" value={s.voiceVolume} min={0} max={1} step={0.05} onChange={(v) => set({ voiceVolume: v })} format={pct} />
+            </Row>
+            <Row label="Captions" hint="Subtitles with English translations">
+              <Toggle label="Captions" on={s.captions} onChange={(v) => set({ captions: v })} />
+            </Row>
             <p className="prose" style={{ fontSize: 14, color: 'var(--muted)', marginTop: 14 }}>
-              All sounds are synthesised in real time with the Web Audio API. Browsers only start audio after you click or press a key.
+              Engine, horns, bells, trains and the city are synthesised in real time with the Web Audio API. Hindi and Marathi voices use your
+              device&apos;s built-in speech voices; if your system has no Marathi voice, a Hindi voice reads the Marathi lines, and captions are always shown.
+              Browsers only start audio after you click or press a key.
             </p>
           </div>
         )}
@@ -180,6 +189,9 @@ export function SettingsScreen() {
                 <span><kbd>M</kbd></span><span>Mute audio</span>
                 <span><kbd>R</kbd></span><span>Reset car onto the road</span>
                 <span><kbd>Tab</kbd></span><span>Map &amp; destinations</span>
+                <span><kbd>T</kbd><kbd>/</kbd></span><span>Type a command (“go to Victoria Terminus”)</span>
+                <span><kbd>V</kbd></span><span>Speak a command (microphone)</span>
+                <span><kbd>G</kbd></span><span>Autopilot to the current destination</span>
                 <span><kbd>Esc</kbd></span><span>Pause</span>
               </div>
               <p className="prose" style={{ fontSize: 14, color: 'var(--muted)' }}>Gamepads work too: triggers for throttle/brake, left stick to steer, A handbrake, Y camera, B horn.</p>
@@ -198,6 +210,46 @@ export function SettingsScreen() {
                   ['night', 'Night'],
                 ]}
                 onChange={(v) => set({ timeOfDay: v })}
+              />
+            </Row>
+            <Row label="Traffic" hint="Rush hour is Mumbai at 6 pm">
+              <Chips<number>
+                value={s.trafficDensity}
+                options={[
+                  [0, 'Off'],
+                  [1, 'Light'],
+                  [2, 'Normal'],
+                  [3, 'Heavy'],
+                  [4, 'Rush hour'],
+                ]}
+                onChange={(v) => set({ trafficDensity: v })}
+              />
+            </Row>
+            <Row label="Crowds" hint="People on footpaths, beaches, stations and bus stops">
+              <Chips<number>
+                value={s.crowdDensity}
+                options={[
+                  [0, 'Off'],
+                  [1, 'Few'],
+                  [2, 'Normal'],
+                  [3, 'Busy'],
+                  [4, 'Festival'],
+                ]}
+                onChange={(v) => set({ crowdDensity: v })}
+              />
+            </Row>
+            <Row label="Street life" hint="Parked cars, scooters and street stalls (applies to newly loaded blocks)">
+              <Toggle label="Street life" on={s.streetLife} onChange={(v) => set({ streetLife: v })} />
+            </Row>
+            <Row label="Voice commands language" hint="Speech recognition for the V key / mic button">
+              <Chips<VoiceLang>
+                value={s.voiceLang}
+                options={[
+                  ['en-IN', 'English (India)'],
+                  ['hi-IN', 'हिंदी'],
+                  ['mr-IN', 'मराठी'],
+                ]}
+                onChange={(v) => set({ voiceLang: v })}
               />
             </Row>
             <Row label="Weather" hint="Monsoon adds rain, wet roads and less grip">

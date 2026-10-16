@@ -15,7 +15,10 @@ export type Action =
   | 'mute'
   | 'reset'
   | 'pause'
-  | 'map';
+  | 'map'
+  | 'command'
+  | 'voice'
+  | 'autopilot';
 
 export const DEFAULT_BINDINGS: Record<string, Action> = {
   KeyW: 'accelerate',
@@ -35,6 +38,10 @@ export const DEFAULT_BINDINGS: Record<string, Action> = {
   Escape: 'pause',
   KeyP: 'pause',
   Tab: 'map',
+  KeyT: 'command',
+  Slash: 'command',
+  KeyV: 'voice',
+  KeyG: 'autopilot',
 };
 
 /** Keys whose browser default (scrolling, focus change) must be suppressed. */

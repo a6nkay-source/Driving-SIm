@@ -111,6 +111,11 @@ export class Navigator {
     this.group.add(this.beacon);
   }
 
+  /** Distance travelled along the current route (metres). */
+  get routeProgress(): number {
+    return this.progress;
+  }
+
   get destination(): { x: number; z: number; name: string } | null {
     return this.dest;
   }

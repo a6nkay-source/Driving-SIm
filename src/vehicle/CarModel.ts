@@ -407,6 +407,7 @@ export interface CarMaterials {
 
 /** The complete car: body group with wheels, lights and runtime controls. */
 export class CarModel {
+  readonly id = 'gtr' as const;
   readonly root = new THREE.Group();
   /** Body (pitches/rolls on the suspension); wheels stay on the road. */
   readonly body = new THREE.Group();
@@ -893,6 +894,16 @@ export class CarModel {
       w.pivot.rotation.y = w.front ? steer : 0;
     }
     this.steeringWheel.rotation.z = steer * 6;
+  }
+
+  get reflective(): THREE.MeshStandardMaterial[] {
+    const m = this.mats;
+    return [m.paint, m.glass, m.chrome, m.headLens, m.rim];
+  }
+
+  setCockpitView(on: boolean, tint: number): void {
+    this.mats.glass.opacity = on ? 0.06 : 0.55 + tint * 0.4;
+    this.mats.glass.envMapIntensity = on ? 0.08 : 1.6;
   }
 
   setInteriorVisible(v: boolean): void {

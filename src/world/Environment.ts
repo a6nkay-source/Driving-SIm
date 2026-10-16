@@ -38,7 +38,7 @@ const PRESETS: Record<TimeOfDay, Preset> = {
     hemiGround: 0x6b5d4c,
     hemiIntensity: 0.95,
     fog: 0xa9b9c6,
-    fogDensity: 0.0006,
+    fogDensity: 0.00026,
     turbidity: 4,
     rayleigh: 1.9,
     mie: 0.004,
@@ -55,7 +55,7 @@ const PRESETS: Record<TimeOfDay, Preset> = {
     hemiGround: 0x4a3a40,
     hemiIntensity: 1.25,
     fog: 0xb98466,
-    fogDensity: 0.00095,
+    fogDensity: 0.00042,
     turbidity: 9,
     rayleigh: 2.6,
     mie: 0.006,
@@ -72,7 +72,7 @@ const PRESETS: Record<TimeOfDay, Preset> = {
     hemiGround: 0x0e0c0c,
     hemiIntensity: 0.45,
     fog: 0x0c1324,
-    fogDensity: 0.0014,
+    fogDensity: 0.00062,
     turbidity: 1,
     rayleigh: 0.2,
     mie: 0.001,
@@ -333,6 +333,10 @@ export class Environment {
         m.needsUpdate = true;
       }
     }
+  }
+
+  removeReflective(...mats: THREE.MeshStandardMaterial[]): void {
+    for (const m of mats) this.reflective.delete(m);
   }
 
   update(dt: number, focus: THREE.Vector3, camera: THREE.Camera): void {
