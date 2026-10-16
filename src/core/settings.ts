@@ -12,6 +12,8 @@ export type VoiceLang = 'en-IN' | 'hi-IN' | 'mr-IN';
 export interface Settings {
   quality: Quality;
   renderScale: number;
+  /** Lower the resolution automatically to hold ~60 fps. */
+  autoResolution: boolean;
   shadows: boolean;
   bloom: boolean;
   viewDistance: number;
@@ -49,6 +51,7 @@ export const QUALITY_PRESETS: Record<Quality, Pick<Settings, 'renderScale' | 'sh
 export const DEFAULT_SETTINGS: Settings = {
   quality: 'high',
   ...QUALITY_PRESETS.high,
+  autoResolution: true,
   trafficDensity: 3,
   crowdDensity: 3,
   streetLife: true,

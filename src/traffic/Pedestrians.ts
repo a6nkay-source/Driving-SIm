@@ -29,6 +29,10 @@ export interface Hotspot {
   pose: 'sit' | 'stand';
   /** Rotation for seated rows (facing the sea). */
   facing?: number;
+  /** Place people even off land (piers, causeways, islets). */
+  anywhere?: boolean;
+  /** Distance at which this crowd appears (default 260 m). */
+  range?: number;
 }
 
 interface Ped {
@@ -307,11 +311,11 @@ export class PedestrianSystem {
         p.z = h.z + Math.sin(a) * d;
         p.heading = r() * Math.PI * 2;
       }
-      if (!sit && sampleMask(this.mask, p.x, p.z, 0) < 0.55) {
+      if (!sit && !h.anywhere && sampleMask(this.mask, p.x, p.z, 0) < 0.55) {
         this.release(p);
         continue;
       }
-      const near = this.graph.nearest(p.x, p.z, 12);
+      const near = h.anywhere ? null : this.graph.nearest(p.x, p.z, 12);
       if (!sit && near && near.d < this.graph.edges[near.edge].w / 2 + 0.6) {
         this.release(p);
         continue;
@@ -332,8 +336,9 @@ export class PedestrianSystem {
     // Hotspots stream in and out with distance.
     this.hotspots.forEach((h, i) => {
       const d = Math.hypot(h.x - px, h.z - pz);
-      if (!this.hotspotActive[i] && d < 260 && this.target > 0) this.activateHotspot(i);
-      else if (this.hotspotActive[i] && (d > 320 || this.target === 0)) this.deactivateHotspot(i);
+      const range = h.range ?? 260;
+      if (!this.hotspotActive[i] && d < range && this.target > 0) this.activateHotspot(i);
+      else if (this.hotspotActive[i] && (d > range + 60 || this.target === 0)) this.deactivateHotspot(i);
     });
     let walkers = 0;
     for (const p of this.peds) {

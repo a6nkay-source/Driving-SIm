@@ -138,6 +138,31 @@ export function drawMap(ctx: CanvasRenderingContext2D, w: number, h: number, map
   stroke(map.paths.major, '#d9a04a', map.widths.major, 1.8);
   stroke(map.paths.deck, '#b994ff', map.widths.deck, 1.8);
   ctx.restore();
+  // Landmarks: a gold marker (and a name on the full map).
+  const NAMES: Record<string, string> = { gateway: 'Gateway of India', csmt: 'CSMT (VT)', hajiali: 'Haji Ali', fountain: 'Flora Fountain' };
+  for (const l of map.network.landmarks) {
+    if (l.type === 'fountain' && o.minimal) continue;
+    const [sx, sy] = worldToScreen(l.x, l.z, w, h, o);
+    if (sx < -40 || sy < -40 || sx > w + 40 || sy > h + 40) continue;
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = '#ffd38a';
+    ctx.strokeStyle = '#06101d';
+    ctx.lineWidth = 2;
+    const r = o.minimal ? 4.5 : 6;
+    ctx.fillRect(-r, -r, r * 2, r * 2);
+    ctx.strokeRect(-r, -r, r * 2, r * 2);
+    ctx.restore();
+    if (!o.minimal) {
+      ctx.font = '700 12px Rajdhani, sans-serif';
+      ctx.fillStyle = '#ffd38a';
+      ctx.strokeStyle = 'rgba(6,16,29,0.9)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(NAMES[l.type] ?? l.name, sx + 10, sy + 4);
+      ctx.fillText(NAMES[l.type] ?? l.name, sx + 10, sy + 4);
+    }
+  }
 }
 
 /** World → canvas pixel transform matching drawMap. */

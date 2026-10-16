@@ -216,6 +216,96 @@ export function createBuildingMaterial(far?: FarLayerOptions): THREE.MeshStandar
   return mat;
 }
 
+/**
+ * The far skyline's material. Distant buildings are only a few pixels tall but
+ * overlap heavily along the horizon, so they get a deliberately cheap shader:
+ * Lambert lighting (no PBR or reflections), windows blended to an average
+ * glass / wall colour, and at night whole floors lit as bands of light.
+ */
+export function createFarBuildingMaterial(far?: FarLayerOptions): THREE.MeshLambertMaterial {
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uNight = worldUniforms.uNight;
+    if (far) {
+      shader.uniforms.uLoaded = { value: far.loaded };
+      shader.uniforms.uGrid = { value: far.grid };
+    }
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        attribute vec2 aWall;
+        attribute vec4 aWin;
+        attribute float aTop;
+        ${far ? 'attribute vec2 aChunk;\nuniform sampler2D uLoaded;\nuniform vec2 uGrid;' : ''}
+        varying vec2 vWall;
+        varying vec4 vWin;
+        varying float vTop;`,
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vWall = aWall;
+        vWin = aWin;
+        vTop = aTop;`,
+      )
+      .replace(
+        '#include <project_vertex>',
+        far
+          ? `#include <project_vertex>
+        // Hide buildings whose detailed streaming tile is loaded.
+        if (aChunk.x >= 0.0 && aChunk.y >= 0.0 && aChunk.x < uGrid.x && aChunk.y < uGrid.y) {
+          if (texture2D(uLoaded, (aChunk + 0.5) / uGrid).r > 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        }`
+          : '#include <project_vertex>',
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform float uNight;
+        varying vec2 vWall;
+        varying vec4 vWin;
+        varying float vTop;
+        ${HASH}`,
+      )
+      .replace(
+        'void main() {',
+        `void main() {
+        vec3 bEmit = vec3(0.0);`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        if (vWin.x > 0.5) {
+          float fh = max(2.5, vWin.w);
+          float floorId = floor(vWall.y / fh);
+          // Glass towers are mostly glass; other styles roughly a third.
+          float glass = vWin.x > 2.5 && vWin.x < 3.5 ? 0.7 : vWin.x > 4.5 && vWin.x < 5.5 ? 0.0 : 0.32;
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.1, 0.12, 0.15), glass);
+          diffuseColor.rgb *= mix(0.8, 1.0, smoothstep(0.0, 6.0, vWall.y));
+          // Night: each floor has its own share of lit rooms (warm or cool).
+          float lit = bHash(vec2(floorId, vWin.z * 53.0));
+          float side = bHash(vec2(floor(vWall.x / 9.0), floorId + vWin.z));
+          vec3 warm = side < 0.7 ? vec3(1.0, 0.72, 0.4) : vec3(0.8, 0.9, 1.0);
+          bEmit += warm * glass * uNight * (0.05 + 0.5 * lit * step(0.35, side));
+          if (vTop > 55.0 && vWall.y > vTop - 3.2) {
+            float hue = bHash(vec2(vWin.z * 41.0, 3.0));
+            vec3 led = hue < 0.4 ? vec3(0.75, 0.88, 1.0) : hue < 0.65 ? vec3(0.35, 0.55, 1.0) : hue < 0.85 ? vec3(0.75, 0.4, 1.0) : vec3(1.0, 0.7, 0.3);
+            bEmit += led * uNight * 2.0;
+          }
+        }`,
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        totalEmissiveRadiance += bEmit;`,
+      );
+  };
+  mat.customProgramCacheKey = () => (far ? 'building-far-lambert-v1' : 'building-lod-lambert-v1');
+  return mat;
+}
+
 /** Asphalt with world-space UVs, wet darkening and puddles. */
 export function createRoadMaterial(): THREE.MeshStandardMaterial {
   const map = asphaltTexture();

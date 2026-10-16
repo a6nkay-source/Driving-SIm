@@ -71,7 +71,7 @@ export const DISTRICTS: Record<string, DistrictConfig> = {
       { id: 'regal', name: 'Regal Circle', nameMr: 'रीगल सर्कल', nameHi: 'रीगल सर्कल', aliases: ['regal cinema'], lat: 18.9248, lon: 72.8322 },
       { id: 'hanging-gardens', name: 'Hanging Gardens, Malabar Hill', nameMr: 'हँगिंग गार्डन', nameHi: 'हैंगिंग गार्डन', aliases: ['malabar hill', 'hanging garden', 'kamala nehru park'], lat: 18.9567, lon: 72.8052 },
       { id: 'mumbai-central', name: 'Mumbai Central', nameMr: 'मुंबई सेंट्रल', nameHi: 'मुंबई सेंट्रल', aliases: ['bombay central'], lat: 18.9696, lon: 72.8195 },
-      { id: 'haji-ali', name: 'Haji Ali', nameMr: 'हाजी अली', nameHi: 'हाजी अली', aliases: ['haji ali dargah'], lat: 18.9822, lon: 72.8128 },
+      { id: 'haji-ali', name: 'Haji Ali', nameMr: 'हाजी अली', nameHi: 'हाजी अली', aliases: ['haji ali dargah', 'dargah', 'हाजी अली दर्गा'], lat: 18.9782, lon: 72.8114 },
       { id: 'mahalaxmi', name: 'Mahalaxmi Racecourse', nameMr: 'महालक्ष्मी रेसकोर्स', nameHi: 'महालक्ष्मी रेसकोर्स', aliases: ['mahalaxmi', 'race course'], lat: 18.9827, lon: 72.8216 },
       { id: 'lower-parel', name: 'Lower Parel', nameMr: 'लोअर परळ', nameHi: 'लोअर परेल', aliases: ['phoenix mills', 'palladium'], lat: 18.9945, lon: 72.8257 },
       { id: 'worli-sea-face', name: 'Worli Sea Face', nameMr: 'वरळी सी फेस', nameHi: 'वर्ली सी फेस', aliases: ['worli'], lat: 19.009, lon: 72.8147 },

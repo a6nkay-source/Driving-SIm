@@ -10,7 +10,7 @@ import { sampleMask, type LoadedMap } from '../map/MapData';
 import { BuildingStyle, type ChunkData } from '../map/types';
 import type { CollisionWorld } from '../physics/CollisionWorld';
 import { buildBuildingGeometry, tankMesh } from './BuildingBuilder';
-import { createBuildingMaterial, createConcreteMaterial, createMarkingMaterial, createRoadMaterial, createSidewalkMaterial } from './materials';
+import { createBuildingMaterial, createConcreteMaterial, createFarBuildingMaterial, createMarkingMaterial, createRoadMaterial, createSidewalkMaterial } from './materials';
 import { buildLamps, buildShopSigns, buildTrees, placeLamps } from './Props';
 import { buildRoadChunk, indexEdgesByChunk, makeRoadContext, type RoadContext } from './RoadBuilder';
 import { buildParked, buildVendors, placeParked, placeVendors, type Vendor } from './StreetLife';
@@ -21,10 +21,21 @@ interface ChunkState {
   /** Small, numerous objects culled with distance (trees, lamps, shop signs, tanks). */
   props: THREE.Object3D[];
   propsVisible: boolean;
+  /** Whether this tile currently draws into the sun's shadow map. */
+  casting: boolean;
+  /** Shadow-casting meshes in this tile. */
+  casters: THREE.Object3D[];
+  cx: number;
+  cz: number;
+  /** The tile's merged building mesh, and whether it uses the cheap distant shader. */
+  buildings: THREE.Mesh | null;
+  lod: boolean;
 }
 
 export interface WorldMaterials {
   building: THREE.MeshStandardMaterial;
+  /** Cheap Lambert version for blocks a few hundred metres away. */
+  buildingLod: THREE.Material;
   road: THREE.MeshStandardMaterial;
   sidewalk: THREE.MeshStandardMaterial;
   marking: THREE.MeshStandardMaterial;
@@ -33,6 +44,9 @@ export interface WorldMaterials {
 }
 
 let pillarGeo: THREE.BufferGeometry | null = null;
+
+/** Tile-centre distance beyond which buildings switch to the cheap shader. */
+const LOD_DISTANCE = 560;
 
 export class World {
   readonly group = new THREE.Group();
@@ -71,6 +85,7 @@ export class World {
     this.edgeIndex = indexEdgesByChunk(this.roadCtx);
     this.materials = {
       building: createBuildingMaterial(),
+      buildingLod: createFarBuildingMaterial(),
       road: createRoadMaterial(),
       sidewalk: createSidewalkMaterial(),
       marking: createMarkingMaterial(),
@@ -81,10 +96,29 @@ export class World {
 
   setShadows(on: boolean): void {
     this.shadows = on;
-    this.group.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (mesh.isMesh && mesh.userData.casts) mesh.castShadow = on;
-    });
+    for (const st of this.chunks.values()) {
+      for (const o of st.casters) o.castShadow = on && st.casting;
+    }
+  }
+
+  /**
+   * Only tiles that can throw a shadow into the sun's shadow box around the car
+   * draw into the shadow map — a whole 400 m tile of buildings otherwise gets
+   * rendered for a shadow area under 200 m across.
+   */
+  updateShadowCasters(x: number, z: number, reach: number): void {
+    const m = this.map.manifest;
+    const size = m.chunkSize;
+    for (const st of this.chunks.values()) {
+      const x0 = m.bounds.minX + st.cx * size;
+      const z0 = m.bounds.minZ + st.cz * size;
+      const dx = Math.max(x0 - x, 0, x - (x0 + size));
+      const dz = Math.max(z0 - z, 0, z - (z0 + size));
+      const casting = Math.max(dx, dz) < reach;
+      if (casting === st.casting) continue;
+      st.casting = casting;
+      for (const o of st.casters) o.castShadow = this.shadows && casting;
+    }
   }
 
   setViewDistance(d: number): void {
@@ -179,6 +213,12 @@ export class World {
         st.propsVisible = near;
         for (const o of st.props) o.visible = near;
       }
+      // Distant blocks: windows are sub-pixel there, so use the cheap shader.
+      const lod = dist > LOD_DISTANCE + (st.lod ? -40 : 40);
+      if (st.buildings && lod !== st.lod) {
+        st.lod = lod;
+        st.buildings.material = lod ? this.materials.buildingLod : this.materials.building;
+      }
     }
   }
 
@@ -196,6 +236,7 @@ export class World {
     const segs: number[] = [];
     const circles: number[] = [];
     const polys: number[][] = [];
+    let buildingMesh: THREE.Mesh | null = null;
 
     const road = buildRoadChunk(this.roadCtx, cx, cz, edgeIds);
     const addMesh = (geo: THREE.BufferGeometry | null, mat: THREE.Material, casts = false, receives = true, order = 0) => {
@@ -230,7 +271,10 @@ export class World {
       if (data.buildings.length) {
         const built = buildBuildingGeometry(data.buildings);
         const mesh = addMesh(built.geometry, mats.building, true, true);
-        if (mesh) mesh.name = 'buildings';
+        if (mesh) {
+          mesh.name = 'buildings';
+          buildingMesh = mesh;
+        }
         segs.push(...built.walls);
         for (const b of data.buildings) polys.push(b.p);
         const tanks = tankMesh(built.tanks);
@@ -311,7 +355,11 @@ export class World {
     this.collision.addGroup(key, segs, circles, polys);
     this.group.add(g);
     const props = g.children.filter((o) => (o as THREE.InstancedMesh).isInstancedMesh && o.name !== 'pillars');
-    this.chunks.set(key, { key, group: g, props, propsVisible: true });
+    const casters: THREE.Object3D[] = [];
+    g.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && o.userData.casts) casters.push(o);
+    });
+    this.chunks.set(key, { key, group: g, props, propsVisible: true, casting: true, casters, cx, cz, buildings: buildingMesh, lod: false });
     this.builtCount++;
     this.onTileVisibility?.(cx, cz, true);
   }

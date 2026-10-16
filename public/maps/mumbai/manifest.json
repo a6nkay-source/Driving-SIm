@@ -7,7 +7,7 @@
  "attribution": "© OpenStreetMap contributors",
  "license": "Open Database License (ODbL) 1.0 — https://opendatacommons.org/licenses/odbl/1-0/",
  "osmTimestamp": "2026-10-16T01:58:05Z",
- "generatedAt": "2026-10-16T02:21:45.184Z",
+ "generatedAt": "2026-10-16T06:51:31.326Z",
  "origin": {
   "lat": 18.9835,
   "lon": 72.82
@@ -1350,13 +1350,6 @@
    "trees": 0
   },
   {
-   "cx": 4,
-   "cz": 24,
-   "file": "chunks/4_24.json",
-   "buildings": 4,
-   "trees": 0
-  },
-  {
    "cx": 6,
    "cz": 24,
    "file": "chunks/6_24.json",
@@ -2425,7 +2418,7 @@
    "cz": 36,
    "file": "chunks/11_36.json",
    "buildings": 24,
-   "trees": 51
+   "trees": 46
   },
   {
    "cx": 12,
@@ -3126,10 +3119,12 @@
    "nameMr": "हाजी अली",
    "nameHi": "हाजी अली",
    "aliases": [
-    "haji ali dargah"
+    "haji ali dargah",
+    "dargah",
+    "हाजी अली दर्गा"
    ],
-   "x": -757.9,
-   "z": 143.7
+   "x": -905.3,
+   "z": 586
   },
   {
    "id": "mahalaxmi",
@@ -3275,15 +3270,15 @@
  },
  "skyline": {
   "file": "skyline.json",
-  "count": 14694
+  "count": 14691
  },
  "stats": {
   "roadKm": 1301.2,
   "edges": 22980,
   "junctions": 17556,
   "elevatedKm": 61.74,
-  "buildings": 20951,
-  "trees": 33275,
+  "buildings": 20948,
+  "trees": 33270,
   "signals": 235,
   "crossings": 252,
   "busStops": 512,

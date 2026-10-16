@@ -50,6 +50,9 @@ interface Vehicle {
   /** Seconds this vehicle has been held up behind the player. */
   blocked: number;
   nextHonk: number;
+  /** Forward unit vector, cached once per frame for the neighbour search. */
+  fx: number;
+  fz: number;
 }
 
 const KIND_SPEED: Record<number, number> = {
@@ -86,6 +89,13 @@ export class TrafficSystem {
   private spawnable: number[] = [];
   private weights: number[] = [];
   private grid = new Map<number, Vehicle[]>();
+  /** Cell lists are reused frame to frame (no per-frame allocation). */
+  private gridPool: Vehicle[][] = [];
+  private mTmp = new THREE.Matrix4();
+  private qTmp = new THREE.Quaternion();
+  private sTmp = new THREE.Vector3();
+  private pTmp = new THREE.Vector3();
+  private counts = new Map<VehicleKind, number>();
   private target = 0;
   private spawnTimer = 0;
   private tmp = { x: 0, z: 0, tx: 0, tz: 0, h: 0 };
@@ -302,6 +312,8 @@ export class TrafficSystem {
           jitter: 0,
           blocked: 0,
           nextHonk: 0,
+          fx: 0,
+          fz: -1,
         };
         this.vehicles.push(v);
       }
@@ -410,13 +422,19 @@ export class TrafficSystem {
       this.spawnTimer = 0.25;
     }
 
-    // Spatial hash for following.
+    // Spatial hash for following (cell arrays are recycled).
+    for (const l of this.grid.values()) {
+      l.length = 0;
+      this.gridPool.push(l);
+    }
     this.grid.clear();
     for (const v of this.vehicles) {
       if (!v.active) continue;
+      v.fx = -Math.sin(v.heading);
+      v.fz = -Math.cos(v.heading);
       const k = this.cellKey(v.x, v.z);
       let l = this.grid.get(k);
-      if (!l) this.grid.set(k, (l = []));
+      if (!l) this.grid.set(k, (l = this.gridPool.pop() ?? []));
       l.push(v);
     }
 
@@ -426,8 +444,8 @@ export class TrafficSystem {
     for (const v of this.vehicles) {
       if (!v.active) continue;
       const spec = SPECS[v.kind];
-      const fx = -Math.sin(v.heading);
-      const fz = -Math.cos(v.heading);
+      const fx = v.fx;
+      const fz = v.fz;
       const lx = fz;
       const lz = -fx;
       // ---- Gap to the vehicle ahead (other traffic or the player).
@@ -436,42 +454,55 @@ export class TrafficSystem {
       let leadIsPlayer = false;
       // Bikes squeeze through gaps, so they only react to what is directly ahead.
       const laneHalf = v.kind === 'bike' ? 1.1 : 2.3;
-      const consider = (ox: number, oz: number, oLen: number, oSpeed: number, isPlayer = false) => {
-        const rx = ox - v.x;
-        const rz = oz - v.z;
-        const along = rx * fx + rz * fz;
-        if (along <= 0 || along > 45) return;
-        const lat = Math.abs(rx * lx + rz * lz);
-        if (lat > laneHalf) return;
-        const g = along - (spec.length + oLen) / 2;
-        if (g < gap) {
-          gap = g;
-          leadSpeed = oSpeed;
-          leadIsPlayer = isPlayer;
-        }
-      };
-      const cx = Math.floor(v.x / 24);
-      const cz = Math.floor(v.z / 24);
-      for (let ix = cx - 2; ix <= cx + 2; ix++) {
-        for (let iz = cz - 2; iz <= cz + 2; iz++) {
+      const halfLen = spec.length / 2;
+      // Only the cells ahead of the vehicle can hold its leader (45 m look-ahead).
+      const ax = v.x + fx * 22;
+      const az = v.z + fz * 22;
+      const c0x = Math.floor((ax - 26) / 24);
+      const c1x = Math.floor((ax + 26) / 24);
+      const c0z = Math.floor((az - 26) / 24);
+      const c1z = Math.floor((az + 26) / 24);
+      for (let ix = c0x; ix <= c1x; ix++) {
+        for (let iz = c0z; iz <= c1z; iz++) {
           const l = this.grid.get(ix * 100003 + iz);
           if (!l) continue;
-          for (const o of l) {
+          for (let j = 0; j < l.length; j++) {
+            const o = l[j];
             if (o === v) continue;
-            const ofx = -Math.sin(o.heading);
-            const ofz = -Math.cos(o.heading);
-            const dot = ofx * fx + ofz * fz;
-            if (dot < 0.5) {
-              // Crossing or oncoming: only yield to a vehicle that is moving through
-              // right in front of us. Two vehicles waiting on each other at a
-              // junction would otherwise gridlock forever.
-              if (o.speed < 0.6 || (o.x - v.x) * fx + (o.z - v.z) * fz > 7) continue;
+            const rx = o.x - v.x;
+            const rz = o.z - v.z;
+            const along = rx * fx + rz * fz;
+            if (along <= 0 || along > 45) continue;
+            const lat = rx * lx + rz * lz;
+            if (lat > laneHalf || lat < -laneHalf) continue;
+            const dot = o.fx * fx + o.fz * fz;
+            // Crossing or oncoming: only yield to a vehicle that is moving through
+            // right in front of us. Two vehicles waiting on each other at a
+            // junction would otherwise gridlock forever.
+            if (dot < 0.5 && (o.speed < 0.6 || along > 7)) continue;
+            const g = along - halfLen - SPECS[o.kind].length / 2;
+            if (g < gap) {
+              gap = g;
+              leadSpeed = o.speed * dot;
+              leadIsPlayer = false;
             }
-            consider(o.x, o.z, SPECS[o.kind].length, o.speed * dot);
           }
         }
       }
-      consider(player.x, player.z, 4.7, playerSpeed * (pfx * fx + pfz * fz), true);
+      {
+        const rx = player.x - v.x;
+        const rz = player.z - v.z;
+        const along = rx * fx + rz * fz;
+        const lat = rx * lx + rz * lz;
+        if (along > 0 && along <= 45 && lat <= laneHalf && lat >= -laneHalf) {
+          const g = along - halfLen - 2.35;
+          if (g < gap) {
+            gap = g;
+            leadSpeed = playerSpeed * (pfx * fx + pfz * fz);
+            leadIsPlayer = true;
+          }
+        }
+      }
 
       // ---- Signals.
       let atRed = false;
@@ -623,18 +654,18 @@ export class TrafficSystem {
     }
 
     // ---- Upload instance data.
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const scale = new THREE.Vector3(1, 1, 1);
-    const up = new THREE.Vector3(0, 1, 0);
-    const counts = new Map<VehicleKind, number>();
+    const m = this.mTmp;
+    const q = this.qTmp;
+    const scale = this.sTmp;
+    const counts = this.counts;
+    counts.clear();
     for (const v of this.vehicles) {
       if (!v.active) continue;
       const mesh = this.meshes.get(v.kind)!;
-      q.setFromAxisAngle(up, v.heading);
+      q.set(0, Math.sin(v.heading / 2), 0, Math.cos(v.heading / 2));
       // Hatchbacks to SUVs: vary length, width and height a little.
       scale.set(0.94 + (v.scale - 0.9) * 0.4, 0.95 + (v.scale - 0.9) * 0.6, v.scale);
-      m.compose(new THREE.Vector3(v.x, v.y + 0.02, v.z), q, scale);
+      m.compose(this.pTmp.set(v.x, v.y + 0.02, v.z), q, scale);
       mesh.setMatrixAt(v.slot, m);
       mesh.setColorAt(v.slot, v.color);
       const st = this.stateAttr.get(v.kind)!;

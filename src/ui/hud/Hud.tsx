@@ -135,7 +135,10 @@ export function Hud() {
         gearRef.current.className = `gear ${g === 'R' ? 'r' : ''}`;
       }
       if (cpTimeRef.current && t.checkpoint) cpTimeRef.current.textContent = formatTime(t.checkpoint.time);
-      if (fpsRef.current) fpsRef.current.textContent = `${Math.round(ctrl.engine.fps)} FPS`;
+      if (fpsRef.current) {
+        const e = ctrl.engine;
+        fpsRef.current.textContent = `${Math.round(e.fps)} FPS${e.gpuMs > 0 ? ` · GPU ${e.gpuMs.toFixed(1)} ms` : ''}${e.dynScale < 0.995 ? ` · ${Math.round(e.dynScale * 100)}% res` : ''}`;
+      }
       if (vignetteRef.current) vignetteRef.current.style.opacity = String(Math.max(0, Math.min(0.8, (Math.abs(t.speed) - 35) / 50)));
       // Minimap.
       const c = miniRef.current;

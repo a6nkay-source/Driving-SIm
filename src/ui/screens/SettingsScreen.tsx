@@ -84,6 +84,9 @@ export function SettingsScreen() {
                 onChange={applyQualityPreset}
               />
             </Row>
+            <Row label="Auto resolution" hint="Lowers the resolution when needed to hold 60 FPS">
+              <Toggle label="Auto resolution" on={s.autoResolution} onChange={(v) => set({ autoResolution: v })} />
+            </Row>
             <Row label="Render scale" hint="Lower for more FPS on laptops">
               <Slider label="Render scale" value={s.renderScale} min={0.5} max={1} step={0.05} onChange={(v) => set({ renderScale: v })} format={pct} />
             </Row>

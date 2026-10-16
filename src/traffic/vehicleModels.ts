@@ -72,59 +72,194 @@ const GLASS = 0x1a2026;
 const TYRE = 0x111111;
 const CHROME = 0x9a9ea4;
 
+/**
+ * A side profile ([z, y] points, front at −Z) extruded across the width and
+ * centred on x = 0, with wheel arches cut from the bottom edge as [z, radius].
+ */
+function profile(pts: [number, number][], width: number, arches: [number, number][] = [], bevel = 0.05): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  shape.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i][0], pts[i][1]);
+  const y0 = pts[0][1];
+  // Arches run rear → front along the bottom edge.
+  for (const [z, r] of [...arches].sort((p, q) => q[0] - p[0])) {
+    shape.lineTo(z + r, y0);
+    shape.absarc(z, y0, r, 0, Math.PI, false);
+  }
+  shape.closePath();
+  const g = new THREE.ExtrudeGeometry(shape, { depth: width - bevel * 2, bevelEnabled: bevel > 0, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 1, curveSegments: 6 });
+  g.translate(0, 0, -(width - bevel * 2) / 2);
+  g.rotateY(-Math.PI / 2);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A modern compact saloon (the white / silver majority of Mumbai's cars). */
 function sedan(): THREE.BufferGeometry {
   const L = 4.1;
   const W = 1.72;
+  const fz = -1.3;
+  const rz = 1.25;
   return build([
-    { geo: box(W, 0.62, L, 0, 0.62, 0), color: 0xffffff, tint: true },
-    { geo: box(W - 0.12, 0.52, 2.0, 0, 1.18, 0.15), color: 0xffffff, tint: true },
-    { geo: box(W - 0.1, 0.4, 1.9, 0, 1.17, 0.15), color: GLASS },
-    { geo: box(W - 0.3, 0.42, 0.05, 0, 1.15, -0.87), color: GLASS },
-    { geo: box(W - 0.3, 0.38, 0.05, 0, 1.15, 1.17), color: GLASS },
-    { geo: box(W + 0.02, 0.14, L + 0.04, 0, 0.36, 0), color: 0x222428 },
-    { geo: box(0.36, 0.14, 0.05, -0.6, 0.78, -L / 2 - 0.01), color: 0xffffff, glow: 1 },
-    { geo: box(0.36, 0.14, 0.05, 0.6, 0.78, -L / 2 - 0.01), color: 0xffffff, glow: 1 },
-    { geo: box(0.4, 0.14, 0.05, -0.6, 0.8, L / 2 + 0.01), color: 0x8a1010, glow: 2 },
-    { geo: box(0.4, 0.14, 0.05, 0.6, 0.8, L / 2 + 0.01), color: 0x8a1010, glow: 2 },
-    { geo: box(0.1, 0.08, 0.06, -0.82, 0.7, -L / 2), color: 0xb36a00, glow: 3 },
-    { geo: box(0.1, 0.08, 0.06, 0.82, 0.7, -L / 2), color: 0xb36a00, glow: 3 },
-    { geo: box(0.1, 0.08, 0.06, -0.82, 0.68, L / 2), color: 0xb36a00, glow: 3 },
-    { geo: box(0.1, 0.08, 0.06, 0.82, 0.68, L / 2), color: 0xb36a00, glow: 3 },
-    { geo: box(0.7, 0.16, 0.04, 0, 0.5, L / 2 + 0.02), color: 0xf2f2ee },
-    { geo: wheel(0.31, 0.2, -0.78, -1.3), color: TYRE },
-    { geo: wheel(0.31, 0.2, 0.78, -1.3), color: TYRE },
-    { geo: wheel(0.31, 0.2, -0.78, 1.25), color: TYRE },
-    { geo: wheel(0.31, 0.2, 0.78, 1.25), color: TYRE },
+    {
+      geo: profile(
+        [
+          [-2.04, 0.3],
+          [-2.07, 0.6],
+          [-1.98, 0.76],
+          [-1.25, 0.88],
+          [-0.78, 0.93],
+          [1.25, 0.95],
+          [1.95, 0.9],
+          [2.06, 0.74],
+          [2.04, 0.3],
+        ],
+        W,
+        [
+          [fz, 0.37],
+          [rz, 0.37],
+        ],
+      ),
+      color: 0xffffff,
+      tint: true,
+    },
+    // Greenhouse: glass band, then the painted roof.
+    {
+      geo: profile(
+        [
+          [-0.8, 0.92],
+          [-0.22, 1.36],
+          [0.86, 1.37],
+          [1.3, 0.94],
+        ],
+        W - 0.18,
+        [],
+        0.02,
+      ),
+      color: GLASS,
+    },
+    {
+      geo: profile(
+        [
+          [-0.26, 1.33],
+          [-0.16, 1.42],
+          [0.84, 1.43],
+          [0.94, 1.33],
+        ],
+        W - 0.16,
+        [],
+        0.03,
+      ),
+      color: 0xffffff,
+      tint: true,
+    },
+    { geo: box(W + 0.03, 0.12, 0.2, 0, 0.38, -L / 2 + 0.06), color: 0x222428 },
+    { geo: box(W + 0.03, 0.12, 0.2, 0, 0.4, L / 2 - 0.06), color: 0x222428 },
+    { geo: box(W + 0.02, 0.06, 2.0, 0, 0.36, 0), color: 0x222428 },
+    { geo: box(0.42, 0.11, 0.06, -0.58, 0.74, -L / 2 + 0.04), color: 0xffffff, glow: 1 },
+    { geo: box(0.42, 0.11, 0.06, 0.58, 0.74, -L / 2 + 0.04), color: 0xffffff, glow: 1 },
+    { geo: box(0.6, 0.08, 0.04, 0, 0.58, -L / 2 + 0.01), color: 0x18191c },
+    { geo: box(0.42, 0.13, 0.06, -0.58, 0.8, L / 2 - 0.08), color: 0x8a1010, glow: 2 },
+    { geo: box(0.42, 0.13, 0.06, 0.58, 0.8, L / 2 - 0.08), color: 0x8a1010, glow: 2 },
+    { geo: box(0.08, 0.07, 0.06, -0.84, 0.68, -L / 2 + 0.06), color: 0xb36a00, glow: 3 },
+    { geo: box(0.08, 0.07, 0.06, 0.84, 0.68, -L / 2 + 0.06), color: 0xb36a00, glow: 3 },
+    { geo: box(0.08, 0.07, 0.06, -0.82, 0.7, L / 2 - 0.06), color: 0xb36a00, glow: 3 },
+    { geo: box(0.08, 0.07, 0.06, 0.82, 0.7, L / 2 - 0.06), color: 0xb36a00, glow: 3 },
+    { geo: box(0.52, 0.13, 0.03, 0, 0.5, L / 2 - 0.02), color: 0xf2f2ee },
+    // Mirrors.
+    { geo: box(0.12, 0.09, 0.16, -W / 2 - 0.04, 0.98, -0.7), color: 0x1d1e22 },
+    { geo: box(0.12, 0.09, 0.16, W / 2 + 0.04, 0.98, -0.7), color: 0x1d1e22 },
+    { geo: wheel(0.31, 0.2, -0.77, fz), color: TYRE },
+    { geo: wheel(0.31, 0.2, 0.77, fz), color: TYRE },
+    { geo: wheel(0.31, 0.2, -0.77, rz), color: TYRE },
+    { geo: wheel(0.31, 0.2, 0.77, rz), color: TYRE },
+    { geo: wheel(0.19, 0.21, -0.77, fz), color: CHROME },
+    { geo: wheel(0.19, 0.21, 0.77, fz), color: CHROME },
+    { geo: wheel(0.19, 0.21, -0.77, rz), color: CHROME },
+    { geo: wheel(0.19, 0.21, 0.77, rz), color: CHROME },
   ]);
 }
 
-/** The classic Mumbai "kaali-peeli" — a boxy black-and-yellow Premier Padmini-style taxi. */
+/** The classic Mumbai "kaali-peeli" — a black-and-yellow Premier Padmini taxi. */
 function taxi(): THREE.BufferGeometry {
   const L = 3.95;
   const W = 1.56;
   const black = 0x15161a;
   const yellow = 0xf2c200;
+  const fz = -1.15;
+  const rz = 1.22;
   return build([
-    { geo: box(W, 0.55, L, 0, 0.6, 0), color: black },
-    { geo: box(W - 0.06, 0.08, L - 0.1, 0, 0.92, 0), color: yellow },
-    { geo: box(W - 0.14, 0.5, 1.95, 0, 1.2, 0.2), color: yellow },
-    { geo: box(W - 0.12, 0.36, 1.85, 0, 1.18, 0.2), color: GLASS },
-    { geo: box(W - 0.3, 0.38, 0.05, 0, 1.17, -0.8), color: GLASS },
-    { geo: box(W - 0.06, 0.34, 0.95, 0, 0.98, -1.45), color: yellow },
-    { geo: box(W - 0.06, 0.3, 0.75, 0, 0.98, 1.6), color: yellow },
-    { geo: box(W + 0.04, 0.1, 0.12, 0, 0.42, -L / 2), color: CHROME },
-    { geo: box(W + 0.04, 0.1, 0.12, 0, 0.42, L / 2), color: CHROME },
-    { geo: new THREE.CylinderGeometry(0.1, 0.1, 0.05, 12).rotateX(Math.PI / 2).translate(-0.55, 0.78, -L / 2 - 0.01), color: 0xffffff, glow: 1 },
-    { geo: new THREE.CylinderGeometry(0.1, 0.1, 0.05, 12).rotateX(Math.PI / 2).translate(0.55, 0.78, -L / 2 - 0.01), color: 0xffffff, glow: 1 },
-    { geo: box(0.18, 0.12, 0.05, -0.6, 0.78, L / 2 + 0.01), color: 0x8a1010, glow: 2 },
-    { geo: box(0.18, 0.12, 0.05, 0.6, 0.78, L / 2 + 0.01), color: 0x8a1010, glow: 2 },
-    { geo: box(0.1, 0.08, 0.06, -0.72, 0.6, -L / 2), color: 0xb36a00, glow: 3 },
-    { geo: box(0.1, 0.08, 0.06, 0.72, 0.6, L / 2), color: 0xb36a00, glow: 3 },
-    { geo: box(0.4, 0.14, 0.3, 0, 1.52, 0.1), color: yellow },
-    { geo: wheel(0.29, 0.18, -0.7, -1.2), color: TYRE },
-    { geo: wheel(0.29, 0.18, 0.7, -1.2), color: TYRE },
-    { geo: wheel(0.29, 0.18, -0.7, 1.2), color: TYRE },
-    { geo: wheel(0.29, 0.18, 0.7, 1.2), color: TYRE },
+    {
+      geo: profile(
+        [
+          [-1.9, 0.3],
+          [-1.95, 0.62],
+          [-1.88, 0.76],
+          [-1.4, 0.82],
+          [-0.55, 0.88],
+          [1.35, 0.88],
+          [1.92, 0.82],
+          [2.0, 0.72],
+          [1.98, 0.3],
+        ],
+        W,
+        [
+          [fz, 0.35],
+          [rz, 0.35],
+        ],
+      ),
+      color: black,
+    },
+    {
+      geo: profile(
+        [
+          [-0.52, 0.87],
+          [-0.12, 1.3],
+          [0.98, 1.3],
+          [1.36, 0.87],
+        ],
+        W - 0.2,
+        [],
+        0.02,
+      ),
+      color: GLASS,
+    },
+    {
+      geo: profile(
+        [
+          [-0.18, 1.28],
+          [-0.08, 1.37],
+          [0.95, 1.38],
+          [1.04, 1.28],
+        ],
+        W - 0.14,
+        [],
+        0.03,
+      ),
+      color: yellow,
+    },
+    { geo: box(W + 0.06, 0.09, 0.1, 0, 0.42, -L / 2 + 0.02), color: CHROME },
+    { geo: box(W + 0.06, 0.09, 0.1, 0, 0.42, L / 2 + 0.02), color: CHROME },
+    { geo: box(0.74, 0.18, 0.03, 0, 0.6, -L / 2 + 0.06), color: CHROME },
+    { geo: new THREE.CylinderGeometry(0.09, 0.09, 0.05, 12).rotateX(Math.PI / 2).translate(-0.55, 0.62, -L / 2 + 0.06), color: 0xffffff, glow: 1 },
+    { geo: new THREE.CylinderGeometry(0.09, 0.09, 0.05, 12).rotateX(Math.PI / 2).translate(0.55, 0.62, -L / 2 + 0.06), color: 0xffffff, glow: 1 },
+    { geo: box(0.08, 0.18, 0.05, -0.66, 0.66, L / 2 + 0.01), color: 0x8a1010, glow: 2 },
+    { geo: box(0.08, 0.18, 0.05, 0.66, 0.66, L / 2 + 0.01), color: 0x8a1010, glow: 2 },
+    { geo: box(0.1, 0.06, 0.06, -0.56, 0.48, -L / 2 + 0.05), color: 0xb36a00, glow: 3 },
+    { geo: box(0.1, 0.06, 0.06, 0.56, 0.48, L / 2), color: 0xb36a00, glow: 3 },
+    // Roof rack.
+    { geo: box(0.04, 0.04, 0.95, -0.55, 1.46, 0.42), color: CHROME },
+    { geo: box(0.04, 0.04, 0.95, 0.55, 1.46, 0.42), color: CHROME },
+    { geo: box(1.14, 0.04, 0.04, 0, 1.46, 0.1), color: CHROME },
+    { geo: box(1.14, 0.04, 0.04, 0, 1.46, 0.75), color: CHROME },
+    { geo: wheel(0.29, 0.18, -0.66, fz), color: TYRE },
+    { geo: wheel(0.29, 0.18, 0.66, fz), color: TYRE },
+    { geo: wheel(0.29, 0.18, -0.66, rz), color: TYRE },
+    { geo: wheel(0.29, 0.18, 0.66, rz), color: TYRE },
+    { geo: wheel(0.15, 0.19, -0.66, fz), color: CHROME },
+    { geo: wheel(0.15, 0.19, 0.66, fz), color: CHROME },
+    { geo: wheel(0.15, 0.19, -0.66, rz), color: CHROME },
+    { geo: wheel(0.15, 0.19, 0.66, rz), color: CHROME },
   ]);
 }
 

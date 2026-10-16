@@ -33,14 +33,14 @@ const PRESETS: Record<TimeOfDay, Preset> = {
     elevation: 58,
     azimuth: 150,
     sunColor: 0xfff1dc,
-    sunIntensity: 3.4,
-    hemiSky: 0x9fbbe0,
-    hemiGround: 0x6b5d4c,
-    hemiIntensity: 0.95,
-    fog: 0xa9b9c6,
+    sunIntensity: 3.9,
+    hemiSky: 0x93b3e2,
+    hemiGround: 0x5e5144,
+    hemiIntensity: 0.78,
+    fog: 0x9db4cb,
     fogDensity: 0.00026,
-    turbidity: 4,
-    rayleigh: 1.9,
+    turbidity: 2.8,
+    rayleigh: 1.55,
     mie: 0.004,
     mieG: 0.8,
     night: 0,
@@ -124,6 +124,17 @@ export class Environment {
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.sky.scale.setScalar(20000);
     this.sky.name = 'sky';
+    // Sky domes are pinned to the far plane: drawing them after the city lets
+    // the depth test skip every pixel already covered, instead of running the
+    // scattering shader across the whole screen first.
+    this.sky.renderOrder = 1000;
+    // Scale the scattering output so a bright day sky keeps its blue instead of
+    // clipping to white under the tone mapper.
+    const skyMat = this.sky.material as THREE.ShaderMaterial;
+    skyMat.uniforms.uSkyGain = { value: 0.65 };
+    skyMat.fragmentShader = skyMat.fragmentShader
+      .replace('uniform float showSunDisc;', 'uniform float showSunDisc;\nuniform float uSkyGain;')
+      .replace('gl_FragColor = vec4( texColor, 1.0 );', 'gl_FragColor = vec4( texColor * uSkyGain, 1.0 );');
     scene.add(this.sky);
     const domeMat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
@@ -143,7 +154,7 @@ export class Environment {
       uniforms: { uHaze: { value: new THREE.Color(0.3, 0.16, 0.08) } },
     });
     this.nightDome = new THREE.Mesh(new THREE.SphereGeometry(15000, 32, 16), domeMat);
-    this.nightDome.renderOrder = -10;
+    this.nightDome.renderOrder = 1000;
     scene.add(this.nightDome);
     const r = rng(17);
     const starPos: number[] = [];
@@ -226,6 +237,13 @@ export class Environment {
     u.rayleigh.value = monsoon ? 0.6 : p.rayleigh;
     u.mieCoefficient.value = monsoon ? 0.02 : p.mie;
     u.mieDirectionalG.value = p.mieG;
+    if (u.uSkyGain) u.uSkyGain.value = time === 'day' ? (monsoon ? 0.55 : 0.62) : 0.9;
+    // Clouds: fair-weather cumulus by day, thin at sunset, a heavy grey deck in the monsoon.
+    if (u.cloudCoverage) {
+      u.cloudCoverage.value = monsoon ? 0.9 : time === 'sunset' ? 0.32 : 0.42;
+      u.cloudDensity.value = monsoon ? 0.85 : 0.45;
+      u.cloudElevation.value = 0.55;
+    }
     const isNight = time === 'night';
     this.sky.visible = !isNight;
     this.nightDome.visible = isNight;
@@ -269,7 +287,9 @@ export class Environment {
     cam.top = this.shadowExtent;
     cam.bottom = -this.shadowExtent;
     cam.near = 1;
-    cam.far = 900;
+    // The light sits 400 m up the sun ray from the car; nothing below the
+    // ground needs to be in the shadow volume.
+    cam.far = 560;
     cam.updateProjectionMatrix();
 
     this.rebuildEnvMap(isNight, fogColor);
@@ -347,6 +367,8 @@ export class Environment {
     this.sun.target.position.set(fx, 0, fz);
     this.sun.position.set(fx + this.sunDir.x * 400, Math.max(60, this.sunDir.y * 400), fz + this.sunDir.z * 400);
     this.sun.target.updateMatrixWorld();
+    const su = (this.sky.material as THREE.ShaderMaterial).uniforms;
+    if (su.time) su.time.value += dt;
     this.nightDome.position.copy(camera.position);
     this.stars.position.copy(camera.position);
     this.sky.position.copy(camera.position);

@@ -127,7 +127,7 @@ export interface Poi {
 }
 
 export interface Landmark {
-  type: 'gateway' | 'fountain';
+  type: 'gateway' | 'fountain' | 'csmt' | 'hajiali';
   name: string;
   x: number;
   z: number;
@@ -137,6 +137,8 @@ export interface Landmark {
   len: number;
   wid: number;
   height: number;
+  /** Extra polyline (flat x,z) — the Haji Ali causeway from the shore to the dargah. */
+  path?: number[];
 }
 
 export interface NetworkData {

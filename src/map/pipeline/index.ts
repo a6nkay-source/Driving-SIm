@@ -210,8 +210,10 @@ export function buildDistrict(osm: OverpassResult, cfg: DistrictConfig, opts: { 
   );
 
   // Landmarks found by name.
+  const causeway: number[][] = [];
   for (const way of ways) {
     const name = way.tags?.name ?? '';
+    if (/haji ali causeway/i.test(name) && way.tags?.highway) causeway.push(toFlat(way.geometry));
     if (/flora fountain/i.test(name)) {
       const ring = toFlat(way.geometry);
       const [x, z] = polygonCentroid(ring);
@@ -219,12 +221,64 @@ export function buildDistrict(osm: OverpassResult, cfg: DistrictConfig, opts: { 
     }
   }
 
+  // CSMT: place the model on the World Heritage block (tagged as a building:part)
+  // and turn its forecourt towards the D. N. Road junction, as in reality.
+  const csmt = landmarks.find((l) => l.type === 'csmt');
+  if (csmt) {
+    const heritage = ways.find(
+      (w) => w.tags?.heritage && /terminus/i.test(`${w.tags.loc_name ?? ''} ${w.tags.name ?? ''}`) && (w.tags['building:part'] || w.tags.building),
+    );
+    if (heritage?.geometry) {
+      const ring = toFlat(heritage.geometry);
+      const box = orientedBoxOf(ring);
+      Object.assign(csmt, box);
+    }
+    faceTowards(csmt, ...proj.toLocal(18.9399, 72.8342));
+  }
+
+  // The Haji Ali causeway: one path from the shore out to the dargah's islet.
+  const haji = landmarks.find((l) => l.type === 'hajiali');
+  if (haji && causeway.length) {
+    const pts: [number, number][] = [];
+    for (const line of causeway) for (let i = 0; i < line.length; i += 2) pts.push([line[i], line[i + 1]]);
+    // Order from the far (shore) end towards the dargah, dropping near-duplicates.
+    pts.sort((a, b) => Math.hypot(b[0] - haji.x, b[1] - haji.z) - Math.hypot(a[0] - haji.x, a[1] - haji.z));
+    const path: number[] = [];
+    for (const [x, z] of pts) {
+      const n = path.length;
+      if (n && Math.hypot(x - path[n - 2], z - path[n - 1]) < 4) continue;
+      path.push(round1(x), round1(z));
+    }
+    if (path.length >= 4) {
+      haji.path = path;
+      faceTowards(haji, path[0], path[1]);
+    }
+  }
+
+  // Nothing else stands inside a hand-built landmark's footprint.
+  const insideLandmark = (x: number, z: number, margin: number) =>
+    landmarks.some((l) => {
+      if (l.type === 'fountain') return false;
+      const c = Math.cos(l.rot);
+      const sn = Math.sin(l.rot);
+      const dx = x - l.x;
+      const dz = z - l.z;
+      return Math.abs(dx * c - dz * sn) < l.len / 2 + margin && Math.abs(dx * sn + dz * c) < l.wid / 2 + margin;
+    });
+  // (Filtered when tiles are cut: tree placement still uses the full list and its spatial index.)
+  const replaced = new Set<number>();
+  for (const b of bres.buildings) {
+    const [cx, cz] = polygonCentroid(b.p);
+    if (insideLandmark(cx, cz, 4)) replaced.add(b.id);
+  }
+  if (replaced.size) log.push(`landmarks: ${replaced.size} OSM buildings replaced by landmark models`);
+
   // Trees.
   const osmTrees: [number, number][] = [];
   for (const node of nodes) {
     if (node.tags?.natural === 'tree') osmTrees.push(proj.toLocal(node.lat, node.lon));
   }
-  const trees = placeTrees({
+  let trees = placeTrees({
     edges: net.edges,
     roadGrid: net.grid,
     buildings: bres.buildings,
@@ -234,6 +288,27 @@ export function buildDistrict(osm: OverpassResult, cfg: DistrictConfig, opts: { 
     parks,
     shore,
   });
+  // Keep the hand-built landmarks' footprints (and the Gateway's plaza) clear of trees.
+  const clear = landmarks.filter((l) => l.type !== 'fountain');
+  if (clear.length) {
+    const kept: number[] = [];
+    for (let i = 0; i < trees.length; i += 3) {
+      const x = trees[i];
+      const z = trees[i + 1];
+      const inside = clear.some((l) => {
+        const c = Math.cos(l.rot);
+        const sn = Math.sin(l.rot);
+        const dx = x - l.x;
+        const dz = z - l.z;
+        // Inverse of three.js rotation.y.
+        const lx = dx * c - dz * sn;
+        const lz = dx * sn + dz * c;
+        return Math.abs(lx) < l.len / 2 + 8 && Math.abs(lz) < l.wid / 2 + 8;
+      });
+      if (!inside) kept.push(x, z, trees[i + 2]);
+    }
+    trees = kept;
+  }
   log.push(`trees: ${trees.length / 3}`);
 
   // POIs for map labels.
@@ -273,6 +348,7 @@ export function buildDistrict(osm: OverpassResult, cfg: DistrictConfig, opts: { 
   };
   const skyline: SkylineTower[] = [];
   for (const b of bres.buildings) {
+    if (replaced.has(b.id)) continue;
     const [cx, cz] = polygonCentroid(b.p);
     const chunk = chunkFor(cx, cz);
     chunk.buildings.push(b);
@@ -380,4 +456,60 @@ export function buildDistrict(osm: OverpassResult, cfg: DistrictConfig, opts: { 
       buildings: bres.buildings.length,
     },
   };
+}
+
+/** Oriented bounding box of a ring, aligned with its longest edge. */
+function orientedBoxOf(ring: number[]): { x: number; z: number; rot: number; len: number; wid: number } {
+  let bestLen = 0;
+  let ang = 0;
+  const n = ring.length;
+  for (let i = 0; i < n; i += 2) {
+    const j = (i + 2) % n;
+    const l = Math.hypot(ring[j] - ring[i], ring[j + 1] - ring[i + 1]);
+    if (l > bestLen) {
+      bestLen = l;
+      ang = Math.atan2(ring[j + 1] - ring[i + 1], ring[j] - ring[i]);
+    }
+  }
+  const ux = Math.cos(ang);
+  const uz = Math.sin(ang);
+  let minU = Infinity;
+  let maxU = -Infinity;
+  let minV = Infinity;
+  let maxV = -Infinity;
+  for (let i = 0; i < n; i += 2) {
+    const u = ring[i] * ux + ring[i + 1] * uz;
+    const v = -ring[i] * uz + ring[i + 1] * ux;
+    minU = Math.min(minU, u);
+    maxU = Math.max(maxU, u);
+    minV = Math.min(minV, v);
+    maxV = Math.max(maxV, v);
+  }
+  const cu = (minU + maxU) / 2;
+  const cv = (minV + maxV) / 2;
+  return { x: round1(cu * ux - cv * uz), z: round1(cu * uz + cv * ux), rot: -ang, len: maxU - minU, wid: maxV - minV };
+}
+
+/**
+ * Turns a landmark so its front (model +Z) points at a world position, keeping
+ * the footprint: a quarter turn swaps length and width.
+ */
+function faceTowards(l: Landmark, tx: number, tz: number): void {
+  const dx = tx - l.x;
+  const dz = tz - l.z;
+  const d = Math.hypot(dx, dz) || 1;
+  let best = { rot: l.rot, swap: false, score: -Infinity };
+  for (const [k, swap] of [
+    [0, false],
+    [Math.PI, false],
+    [Math.PI / 2, true],
+    [-Math.PI / 2, true],
+  ] as [number, boolean][]) {
+    const r = l.rot + k;
+    // Model +Z maps to world (sin r, cos r) under three.js rotation.y.
+    const score = (Math.sin(r) * dx + Math.cos(r) * dz) / d;
+    if (score > best.score) best = { rot: r, swap, score };
+  }
+  if (best.swap) [l.len, l.wid] = [l.wid, l.len];
+  l.rot = best.rot;
 }

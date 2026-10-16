@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Landmark } from '../map/types';
+import { buildCsmt, buildHajiAli, labelSprite } from './LandmarkModels';
 
 function norm(g: THREE.BufferGeometry): THREE.BufferGeometry {
   const n = g.index ? g.toNonIndexed() : g;
@@ -103,6 +104,8 @@ function fountainGeometry(): THREE.BufferGeometry {
 
 export interface LandmarkObjects {
   group: THREE.Group;
+  /** Floating name labels (faded with distance by the drive scene). */
+  labels: { sprite: THREE.Sprite; x: number; z: number }[];
   /** Collision: wall segments and circles. */
   segments: number[];
   circles: number[];
@@ -115,6 +118,32 @@ export function buildLandmarks(list: Landmark[]): LandmarkObjects {
   const segments: number[] = [];
   const circles: number[] = [];
   const polygons: number[][] = [];
+  const labels: LandmarkObjects['labels'] = [];
+  const addLabel = (x: number, y: number, z: number, title: string, sub: string) => {
+    const sprite = labelSprite(title, sub);
+    sprite.position.set(x, y, z);
+    group.add(sprite);
+    labels.push({ sprite, x, z });
+  };
+  /** Rectangle footprint (local L × W, rotated) as collision walls and a polygon. */
+  const footprint = (l: Landmark, L: number, W: number, rot: number) => {
+    const c = Math.cos(rot);
+    const s = Math.sin(rot);
+    const pts = [
+      [-L / 2, -W / 2],
+      [L / 2, -W / 2],
+      [L / 2, W / 2],
+      [-L / 2, W / 2],
+    ].map(([x, z]) => [l.x + x * c + z * s, l.z - x * s + z * c]);
+    const ring: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % 4];
+      segments.push(a[0], a[1], b[0], b[1]);
+      ring.push(a[0], a[1]);
+    }
+    polygons.push(ring);
+  };
   const basalt = new THREE.MeshStandardMaterial({ color: 0xc8ad7f, roughness: 0.82, metalness: 0 });
   const marble = new THREE.MeshStandardMaterial({ color: 0xe9e4d8, roughness: 0.6 });
   for (const l of list) {
@@ -151,6 +180,22 @@ export function buildLandmarks(list: Landmark[]): LandmarkObjects {
         ring.push(a[0], a[1]);
       }
       polygons.push(ring);
+      addLabel(l.x, 34, l.z, 'Gateway of India', 'गेटवे ऑफ इंडिया');
+    } else if (l.type === 'csmt') {
+      const g = buildCsmt(l.len, l.wid);
+      g.position.set(l.x, 0, l.z);
+      g.rotation.y = l.rot;
+      group.add(g);
+      const L = Math.max(80, Math.min(130, l.len));
+      const W = Math.max(56, Math.min(90, l.wid));
+      footprint(l, L + 3, W, l.rot);
+      addLabel(l.x, 76, l.z, 'Chhatrapati Shivaji Maharaj Terminus (VT)', 'छत्रपती शिवाजी महाराज टर्मिनस');
+    } else if (l.type === 'hajiali') {
+      const g = buildHajiAli(l.len, l.wid, l.path, l);
+      g.position.set(l.x, 0, l.z);
+      g.rotation.y = l.rot;
+      group.add(g);
+      addLabel(l.x, 38, l.z, 'Haji Ali Dargah', 'हाजी अली दर्गा');
     } else if (l.type === 'fountain') {
       const mesh = new THREE.Mesh(fountainGeometry(), marble);
       mesh.position.set(l.x, 0, l.z);
@@ -165,5 +210,5 @@ export function buildLandmarks(list: Landmark[]): LandmarkObjects {
       circles.push(l.x, l.z, 4.4);
     }
   }
-  return { group, segments, circles, polygons };
+  return { group, segments, circles, polygons, labels };
 }

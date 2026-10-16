@@ -170,6 +170,33 @@ export interface BuildingResult {
   removedForRoads: number;
 }
 
+/** Box around several footprints, aligned with the largest one. */
+function landmarkBox(rings: number[][]): { x: number; z: number; rot: number; len: number; wid: number } | null {
+  if (!rings.length) return null;
+  const largest = rings.reduce((a, b) => (Math.abs(signedArea(b)) > Math.abs(signedArea(a)) ? b : a));
+  const ref = orientedBox(largest);
+  const ang = -ref.rot;
+  const ux = Math.cos(ang);
+  const uz = Math.sin(ang);
+  let minU = Infinity;
+  let maxU = -Infinity;
+  let minV = Infinity;
+  let maxV = -Infinity;
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length; i += 2) {
+      const u = ring[i] * ux + ring[i + 1] * uz;
+      const v = -ring[i] * uz + ring[i + 1] * ux;
+      minU = Math.min(minU, u);
+      maxU = Math.max(maxU, u);
+      minV = Math.min(minV, v);
+      maxV = Math.max(maxV, v);
+    }
+  }
+  const cu = (minU + maxU) / 2;
+  const cv = (minV + maxV) / 2;
+  return { x: cu * ux - cv * uz, z: cu * uz + cv * ux, rot: ref.rot, len: maxU - minU, wid: maxV - minV };
+}
+
 /** Oriented bounding box via the longest edge direction. */
 function orientedBox(ring: number[]): { x: number; z: number; rot: number; len: number; wid: number } {
   let bestLen = 0;
@@ -220,6 +247,8 @@ export function processBuildings(
 ): BuildingResult {
   const buildings: BuildingData[] = [];
   const landmarks: Landmark[] = [];
+  const csmtRings: number[][] = [];
+  const hajiRings: number[][] = [];
   let removedForRoads = 0;
   const tmp = { x: 0, z: 0, t: 0, d: 0 };
   const seen = new Set<number>();
@@ -248,6 +277,17 @@ export function processBuildings(
     if (/gateway of india/i.test(name)) {
       const box = orientedBox(ring);
       landmarks.push({ type: 'gateway', name: 'Gateway of India', ...box, height: 26 });
+      continue;
+    }
+    // Chhatrapati Shivaji Maharaj Terminus (Victoria Terminus) and the Haji Ali
+    // Dargah become hand-built landmarks; their OSM footprints only place them.
+    const names = `${name} ${b.tags['loc_name'] ?? ''} ${b.tags['name:en'] ?? ''} ${b.tags['old_name'] ?? ''}`;
+    if (/chhatrapati shivaji (maharaj )?terminus|victoria terminus|mumbai csmt/i.test(names)) {
+      csmtRings.push(ring);
+      continue;
+    }
+    if (/haji ali/i.test(name) && (b.tags.amenity === 'place_of_worship' || b.tags.building === 'mosque')) {
+      hajiRings.push(ring);
       continue;
     }
 
@@ -360,6 +400,12 @@ export function processBuildings(
     }
     grid.insert(i, minX, minZ, maxX, maxZ);
   });
+  // The station's heritage block: oriented like its main building footprint,
+  // sized over the named parts (the whole-complex outline with the train sheds is ignored).
+  const csmt = landmarkBox(csmtRings.filter((r) => Math.abs(signedArea(r)) < 30000));
+  if (csmt) landmarks.push({ type: 'csmt', name: 'Chhatrapati Shivaji Maharaj Terminus', ...csmt, height: 62 });
+  const haji = landmarkBox(hajiRings);
+  if (haji) landmarks.push({ type: 'hajiali', name: 'Haji Ali Dargah', ...haji, height: 26 });
   return { buildings, landmarks, grid, removedForRoads };
 }
 

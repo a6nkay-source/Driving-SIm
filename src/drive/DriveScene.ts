@@ -160,6 +160,7 @@ export class DriveScene implements SceneController {
   private nextPassengerAt = 30;
   private spokenManeuver = '';
   private railPts: number[] = [];
+  private labels: { sprite: THREE.Sprite; x: number; z: number }[] = [];
   private state: VehicleState = createVehicleState();
   private rig: CameraRig;
   private settings: Settings;
@@ -234,6 +235,7 @@ export class DriveScene implements SceneController {
     await tick();
     const lm = buildLandmarks(map.network.landmarks);
     this.scene.add(lm.group);
+    this.labels = lm.labels;
     const nodeRadius = this.world.roadCtx.nodeRadius;
     const street: number[] = [...lm.circles];
     const bus = buildBusStops(map.network.busStops);
@@ -263,7 +265,21 @@ export class DriveScene implements SceneController {
     const spots: { x: number; z: number; kind: string }[] = [];
     for (const d of map.manifest.destinations) if (CROWD_SPOTS[d.id]) spots.push({ x: d.x, z: d.z, kind: CROWD_SPOTS[d.id] });
     for (const p of map.network.pois) if (p.kind === 'station') spots.push({ x: p.x, z: p.z, kind: 'landmark' });
-    this.peds = new PedestrianSystem(graph, map.mask, PedestrianSystem.hotspotsFor(graph, map.mask, this.seaFace, spots, map.network.busStops));
+    const hotspots = PedestrianSystem.hotspotsFor(graph, map.mask, this.seaFace, spots, map.network.busStops);
+    // Pilgrims along the Haji Ali causeway and in the dargah's courtyard.
+    for (const l of map.network.landmarks) {
+      if (l.type !== 'hajiali') continue;
+      hotspots.push({ x: l.x + Math.sin(l.rot) * l.wid * 0.25, z: l.z + Math.cos(l.rot) * l.wid * 0.25, radius: 14, count: 34, pose: 'stand', anywhere: true, range: 900 });
+      const p = l.path ?? [];
+      let acc = 0;
+      for (let i = 2; i < p.length; i += 2) {
+        acc += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
+        if (acc < 30) continue;
+        acc = 0;
+        hotspots.push({ x: p[i], z: p[i + 1], radius: 1.8, count: 4, pose: 'stand', anywhere: true, range: 700 });
+      }
+    }
+    this.peds = new PedestrianSystem(graph, map.mask, hotspots);
     this.peds.setDensity(this.settings.crowdDensity);
     this.peds.onShout = (x, z) => this.shout(x, z);
     this.scene.add(this.peds.group);
@@ -622,9 +638,20 @@ export class DriveScene implements SceneController {
 
     this.updateVisuals(dt, axes);
     this.world.update(s.x, s.z);
+    const fog = this.scene.fog as THREE.FogExp2 | null;
+    this.skyline?.update(this.camera.position.x, this.camera.position.z, fog?.density ?? 0);
+    // Landmark name labels: shown from a few hundred metres to ~3 km away.
+    const cam = this.camera.position;
+    for (const l of this.labels) {
+      const d = Math.hypot(l.x - cam.x, l.z - cam.z);
+      const a = THREE.MathUtils.smoothstep(d, 90, 200) * (1 - THREE.MathUtils.smoothstep(d, 2400, 3400));
+      l.sprite.visible = a > 0.01;
+      (l.sprite.material as THREE.SpriteMaterial).opacity = a;
+    }
     this.lodTimer -= dt;
     if (this.lodTimer <= 0) {
       this.lodTimer = 0.5;
+      this.world.updateShadowCasters(s.x, s.z, this.env.shadowExtent + 70);
       for (const t of this.tetrapods) {
         const m = t as THREE.InstancedMesh;
         const c = m.boundingSphere?.center;
